@@ -213,6 +213,66 @@ input[type="color"] {
   overflow-wrap: anywhere;
 }
 
+.readiness-panel {
+  display: grid;
+  gap: 9px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.readiness-heading,
+.readiness-grid {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.readiness-grid {
+  flex-wrap: wrap;
+}
+
+.readiness-heading strong {
+  font-size: 0.92rem;
+}
+
+.readiness-ok,
+.readiness-warning {
+  padding: 4px 7px;
+  border-radius: 7px;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.readiness-ok {
+  color: #9af0c5;
+  background: rgba(37, 211, 102, 0.12);
+}
+
+.readiness-warning {
+  color: var(--accent-strong);
+  background: rgba(242, 184, 75, 0.12);
+}
+
+.readiness-grid span {
+  display: grid;
+  flex: 1 1 92px;
+  gap: 4px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+}
+
+.readiness-grid strong {
+  color: #f4f7fb;
+  font-size: 0.86rem;
+}
+
+.readiness-panel small {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
 .primary-button,
 .secondary-button,
 .icon-button,

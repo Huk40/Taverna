@@ -47,7 +47,7 @@ Endpoints:
 - `PUT /api/projects/{id}`: обновить проект.
 - `DELETE /api/projects/{id}`: удалить проект.
 
-Backend валидирует `config.schema_version`, наличие всех выбранных part IDs в каталоге, color zones, compatibility rules и print constraints выбранных parts.
+Backend валидирует `config.schema_version`, наличие всех выбранных part IDs в каталоге, color zones, compatibility rules и print constraints выбранных parts. Frontend также показывает print-readiness summary и ограничивает `scale.mm` максимумом выбранных parts.
 
 Пример payload:
 
@@ -124,6 +124,7 @@ Export endpoints:
 - Backend catalog API.
 - Versioned `CharacterConfig` со `schema_version: 1`.
 - Compatibility validation на backend.
+- Print-readiness summary на frontend с динамическим максимумом `scale.mm`.
 - Three.js preview, который реагирует на species, body, clothing, gear, pose, stage, base, scale и material zones.
 - Сохранение, загрузка, открытие, обновление и удаление проектов.
 - Share link для открытия сохраненного проекта по URL.

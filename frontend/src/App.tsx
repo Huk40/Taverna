@@ -47,6 +47,7 @@ export default function App() {
     [projects, selectedProjectId],
   );
   const shareURL = useMemo(() => shareURLForProject(selectedProjectId), [selectedProjectId]);
+  const printReadiness = useMemo(() => (catalog ? printReadinessForConfig(config, catalog) : null), [catalog, config]);
 
   useEffect(() => {
     void boot();
@@ -275,12 +276,16 @@ export default function App() {
                   <input
                     type="range"
                     min="24"
-                    max="75"
+                    max={printReadiness?.maxScale ?? 75}
                     value={config.scale.mm}
                     onChange={(event) => updateScale(Number(event.target.value))}
                   />
-                  <strong>{config.scale.mm} mm</strong>
+                  <strong>
+                    {config.scale.mm} / {printReadiness?.maxScale ?? 75} mm
+                  </strong>
                 </label>
+
+                {printReadiness && <PrintReadinessPanel readiness={printReadiness} />}
 
                 <div className="color-grid wide">
                   {catalog.color_zones.map((zone) => (
@@ -422,6 +427,49 @@ type ColorFieldProps = {
   onChange: (value: string) => void;
 };
 
+type PrintReadiness = {
+  maxScale: number;
+  constrainedBy: string;
+  minThicknessMM: number;
+  supportsSTL: boolean;
+  activeColorZones: string[];
+  selectedPartCount: number;
+};
+
+type PrintReadinessPanelProps = {
+  readiness: PrintReadiness;
+};
+
+function PrintReadinessPanel({ readiness }: PrintReadinessPanelProps) {
+  return (
+    <div className="readiness-panel wide">
+      <div className="readiness-heading">
+        <strong>Print readiness</strong>
+        <span className={readiness.supportsSTL ? "readiness-ok" : "readiness-warning"}>
+          {readiness.supportsSTL ? "STL ready" : "Needs review"}
+        </span>
+      </div>
+      <div className="readiness-grid">
+        <span>
+          Max scale
+          <strong>{readiness.maxScale} mm</strong>
+        </span>
+        <span>
+          Min thickness
+          <strong>{readiness.minThicknessMM.toFixed(1)} mm</strong>
+        </span>
+        <span>
+          Material zones
+          <strong>{readiness.activeColorZones.length}</strong>
+        </span>
+      </div>
+      <small>
+        Constraint: {readiness.constrainedBy} · {readiness.selectedPartCount} selected parts
+      </small>
+    </div>
+  );
+}
+
 function ColorField({ label, value, onChange }: ColorFieldProps) {
   return (
     <label className="color-field">
@@ -482,6 +530,7 @@ function normalizeSelections(config: CharacterConfig, catalog: Catalog): Charact
       }
     }
   }
+  next.scale.mm = clampNumber(next.scale.mm, 24, maxScaleForConfig(next, catalog));
   return next;
 }
 
@@ -510,6 +559,52 @@ function formatForTarget(target: string): string {
     return "glb";
   }
   return "stl";
+}
+
+function printReadinessForConfig(config: CharacterConfig, catalog: Catalog): PrintReadiness {
+  const selectedParts = selectedPartsForConfig(config, catalog);
+  const geometryParts = selectedParts.filter((part) => part.slot !== "product_target");
+  let maxScale = 75;
+  let constrainedBy = "catalog default";
+  let minThicknessMM = Number.POSITIVE_INFINITY;
+  let supportsSTL = true;
+  const colorZones = new Set<string>();
+
+  for (const part of selectedParts) {
+    if (part.print_constraints.max_scale_mm > 0 && part.print_constraints.max_scale_mm < maxScale) {
+      maxScale = part.print_constraints.max_scale_mm;
+      constrainedBy = part.label;
+    }
+  }
+
+  for (const part of geometryParts) {
+    if (part.print_constraints.min_thickness_mm > 0) {
+      minThicknessMM = Math.min(minThicknessMM, part.print_constraints.min_thickness_mm);
+    }
+    if (!part.print_constraints.supports_stl) {
+      supportsSTL = false;
+    }
+    part.color_zones.forEach((zone) => colorZones.add(zone));
+  }
+
+  return {
+    maxScale,
+    constrainedBy,
+    minThicknessMM: Number.isFinite(minThicknessMM) ? minThicknessMM : 0,
+    supportsSTL,
+    activeColorZones: [...colorZones].sort(),
+    selectedPartCount: geometryParts.length,
+  };
+}
+
+function maxScaleForConfig(config: CharacterConfig, catalog: Catalog): number {
+  return printReadinessForConfig(config, catalog).maxScale;
+}
+
+function selectedPartsForConfig(config: CharacterConfig, catalog: Catalog): Part[] {
+  return [...editorSlots, "product_target" as SlotID]
+    .map((slot) => catalog.parts.find((part) => part.slot === slot && part.id === selectionFor(config, slot)))
+    .filter((part): part is Part => Boolean(part));
 }
 
 function legacyPart(slot: SlotID, value: string | undefined, fallback: string): string {
