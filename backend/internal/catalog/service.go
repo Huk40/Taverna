@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"slices"
+
+	_ "embed"
 )
 
 const CurrentSchemaVersion = 1
@@ -15,14 +16,31 @@ var (
 	hexColorPattern  = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 )
 
+//go:embed seed/catalog.json
+var seedCatalogJSON []byte
+
 type Service struct {
 	catalog      Catalog
 	partsBySlot  map[string]map[string]Part
 	colorZoneIDs map[string]struct{}
+	slotIDs      map[string]struct{}
 }
 
-func NewService() *Service {
-	catalog := seedCatalog()
+func NewService() (*Service, error) {
+	var seed Catalog
+	if err := json.Unmarshal(seedCatalogJSON, &seed); err != nil {
+		return nil, fmt.Errorf("load catalog seed: %w", err)
+	}
+
+	service := newService(seed)
+	if err := service.ValidateSeed(); err != nil {
+		return nil, err
+	}
+
+	return service, nil
+}
+
+func newService(catalog Catalog) *Service {
 	partsBySlot := make(map[string]map[string]Part)
 	for _, part := range catalog.Parts {
 		if _, ok := partsBySlot[part.Slot]; !ok {
@@ -36,11 +54,99 @@ func NewService() *Service {
 		colorZoneIDs[zone.ID] = struct{}{}
 	}
 
+	slotIDs := make(map[string]struct{})
+	for _, slot := range catalog.Slots {
+		slotIDs[slot.ID] = struct{}{}
+	}
+
 	return &Service{
 		catalog:      catalog,
 		partsBySlot:  partsBySlot,
 		colorZoneIDs: colorZoneIDs,
+		slotIDs:      slotIDs,
 	}
+}
+
+func (s *Service) ValidateSeed() error {
+	if s.catalog.Version == "" {
+		return errors.New("catalog seed version is required")
+	}
+	if len(s.catalog.Slots) == 0 {
+		return errors.New("catalog seed must include slots")
+	}
+	if len(s.catalog.Parts) == 0 {
+		return errors.New("catalog seed must include parts")
+	}
+	if len(s.catalog.ColorZones) == 0 {
+		return errors.New("catalog seed must include color zones")
+	}
+
+	seenSlots := make(map[string]struct{})
+	for _, slot := range s.catalog.Slots {
+		if slot.ID == "" {
+			return errors.New("catalog seed contains a slot without id")
+		}
+		if _, ok := seenSlots[slot.ID]; ok {
+			return fmt.Errorf("catalog seed contains duplicate slot %q", slot.ID)
+		}
+		seenSlots[slot.ID] = struct{}{}
+	}
+
+	seenParts := make(map[string]struct{})
+	for _, part := range s.catalog.Parts {
+		if part.ID == "" || part.Slot == "" {
+			return errors.New("catalog seed contains a part without id or slot")
+		}
+		if _, ok := seenSlots[part.Slot]; !ok {
+			return fmt.Errorf("catalog seed part %q references unknown slot %q", part.ID, part.Slot)
+		}
+		if _, ok := seenParts[part.ID]; ok {
+			return fmt.Errorf("catalog seed contains duplicate part %q", part.ID)
+		}
+		seenParts[part.ID] = struct{}{}
+		for _, zone := range part.ColorZones {
+			if _, ok := s.colorZoneIDs[zone]; !ok {
+				return fmt.Errorf("catalog seed part %q references unknown color zone %q", part.ID, zone)
+			}
+		}
+	}
+
+	seenZones := make(map[string]struct{})
+	for _, zone := range s.catalog.ColorZones {
+		if zone.ID == "" {
+			return errors.New("catalog seed contains a color zone without id")
+		}
+		if _, ok := seenZones[zone.ID]; ok {
+			return fmt.Errorf("catalog seed contains duplicate color zone %q", zone.ID)
+		}
+		if !hexColorPattern.MatchString(zone.Default) {
+			return fmt.Errorf("catalog seed color zone %q has invalid default color", zone.ID)
+		}
+		seenZones[zone.ID] = struct{}{}
+	}
+
+	if err := s.ValidateConfig(s.catalog.Defaults); err != nil {
+		return fmt.Errorf("catalog seed defaults are invalid: %w", err)
+	}
+
+	for _, rule := range s.catalog.Rules {
+		if rule.ID == "" {
+			return errors.New("catalog seed contains a compatibility rule without id")
+		}
+		if err := s.validateSelection(rule.When); err != nil {
+			return fmt.Errorf("catalog seed rule %q has invalid condition: %w", rule.ID, err)
+		}
+		if len(rule.Disables) == 0 {
+			return fmt.Errorf("catalog seed rule %q must disable at least one selection", rule.ID)
+		}
+		for _, disabled := range rule.Disables {
+			if err := s.validateSelection(disabled); err != nil {
+				return fmt.Errorf("catalog seed rule %q disables an invalid selection: %w", rule.ID, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (s *Service) Catalog() Catalog {
@@ -87,18 +193,7 @@ func (s *Service) ValidateConfig(config CharacterConfig) error {
 		return fmt.Errorf("%w: schema_version must be %d", ErrInvalidConfig, CurrentSchemaVersion)
 	}
 
-	selections := map[string]string{
-		"species":        config.Species,
-		"body":           config.Body,
-		"head":           config.Head,
-		"clothing":       config.Clothing,
-		"gear":           config.Gear,
-		"pose":           config.Pose,
-		"stage":          config.Stage,
-		"base":           config.Base,
-		"product_target": config.ProductTarget,
-	}
-
+	selections := selectionMap(config)
 	for slot, partID := range selections {
 		if partID == "" {
 			return fmt.Errorf("%w: %s is required", ErrInvalidConfig, slot)
@@ -146,136 +241,29 @@ func (s *Service) ValidateConfig(config CharacterConfig) error {
 	return nil
 }
 
-func seedCatalog() Catalog {
-	colorZones := []ColorZone{
-		{ID: "skin", Label: "Skin", Default: "#c99672"},
-		{ID: "hair", Label: "Hair", Default: "#3b2416"},
-		{ID: "clothing_primary", Label: "Clothing primary", Default: "#444444"},
-		{ID: "clothing_secondary", Label: "Clothing secondary", Default: "#8B0000"},
-		{ID: "gear_metal", Label: "Gear metal", Default: "#d8dee9"},
-		{ID: "stage", Label: "Stage", Default: "#29313d"},
-	}
-
-	return Catalog{
-		Version: "2026.07.seed",
-		Slots: []Slot{
-			{ID: "species", Label: "Species", Description: "Playable ancestry or creature archetype."},
-			{ID: "body", Label: "Body", Description: "Body proportions used by the preview and print target."},
-			{ID: "head", Label: "Head", Description: "Head shape and facial silhouette."},
-			{ID: "clothing", Label: "Clothing", Description: "Main outfit or armor layer."},
-			{ID: "gear", Label: "Gear", Description: "Held weapon or prop."},
-			{ID: "pose", Label: "Pose", Description: "Full-body stance preset."},
-			{ID: "stage", Label: "Stage", Description: "Display scene or terrain accent."},
-			{ID: "base", Label: "Base", Description: "Physical print base size."},
-			{ID: "product_target", Label: "Product Target", Description: "Intended downstream output."},
-		},
-		Parts: []Part{
-			part("human_01", "species", "Human", []string{"humanoid"}, []string{"skin"}),
-			part("elf_01", "species", "Elf", []string{"humanoid", "slender"}, []string{"skin"}),
-			part("dwarf_01", "species", "Dwarf", []string{"humanoid", "compact"}, []string{"skin"}),
-			part("orc_01", "species", "Orc", []string{"humanoid", "large"}, []string{"skin"}),
-
-			part("balanced_body_01", "body", "Balanced body", []string{"medium"}, []string{"skin"}),
-			part("compact_body_01", "body", "Compact body", []string{"compact"}, []string{"skin"}),
-			part("heroic_body_01", "body", "Heroic body", []string{"large"}, []string{"skin"}),
-
-			part("default_head_01", "head", "Default head", []string{"neutral"}, []string{"skin", "hair"}),
-			part("square_head_01", "head", "Square head", []string{"strong"}, []string{"skin", "hair"}),
-			part("noble_head_01", "head", "Noble head", []string{"slender"}, []string{"skin", "hair"}),
-
-			part("basic_armor_01", "clothing", "Basic armor", []string{"armor"}, []string{"clothing_primary", "clothing_secondary"}),
-			part("travel_cloak_01", "clothing", "Travel cloak", []string{"cloth"}, []string{"clothing_primary", "clothing_secondary"}),
-			part("heavy_plate_01", "clothing", "Heavy plate", []string{"armor", "heavy"}, []string{"clothing_primary", "gear_metal"}),
-			part("mage_robe_01", "clothing", "Mage robe", []string{"cloth", "robe"}, []string{"clothing_primary", "clothing_secondary"}),
-
-			part("sword_01", "gear", "Sword", []string{"weapon", "one_hand"}, []string{"gear_metal"}),
-			part("axe_01", "gear", "Axe", []string{"weapon", "one_hand"}, []string{"gear_metal"}),
-			part("staff_01", "gear", "Staff", []string{"weapon", "two_hand"}, []string{"gear_metal", "clothing_secondary"}),
-			part("longbow_01", "gear", "Longbow", []string{"weapon", "two_hand"}, []string{"gear_metal"}),
-			part("tower_shield_01", "gear", "Tower shield", []string{"shield", "large"}, []string{"gear_metal", "clothing_primary"}),
-			part("none_01", "gear", "No gear", []string{"empty"}, []string{}),
-
-			part("idle_01", "pose", "Idle", []string{"stable"}, []string{}),
-			part("guard_01", "pose", "Guard", []string{"combat"}, []string{}),
-			part("victory_01", "pose", "Victory", []string{"expressive"}, []string{}),
-
-			part("plain_stage_01", "stage", "Plain stage", []string{"simple"}, []string{"stage"}),
-			part("dungeon_stage_01", "stage", "Dungeon stones", []string{"terrain"}, []string{"stage"}),
-			part("ruins_stage_01", "stage", "Ancient ruins", []string{"terrain"}, []string{"stage"}),
-
-			part("round_base_32mm", "base", "Round base 32 mm", []string{"print_base"}, []string{"stage"}),
-			part("round_base_40mm", "base", "Round base 40 mm", []string{"print_base"}, []string{"stage"}),
-
-			part("stl_print", "product_target", "STL print", []string{"digital", "print"}, []string{}),
-			part("glb_preview", "product_target", "GLB preview", []string{"digital", "preview"}, []string{}),
-			part("physical_print", "product_target", "Physical print", []string{"print", "fulfillment"}, []string{}),
-		},
-		Rules: []CompatibilityRule{
-			{
-				ID:          "compact-body-no-longbow",
-				Description: "Compact bodies use shorter gear in the MVP catalog.",
-				When:        Selection{Slot: "body", PartID: "compact_body_01"},
-				Disables:    []Selection{{Slot: "gear", PartID: "longbow_01"}},
-				Reason:      "compact_body_01 is not compatible with longbow_01 in the MVP catalog",
-			},
-			{
-				ID:          "robe-no-tower-shield",
-				Description: "Robes avoid the large shield silhouette until kitbashing exists.",
-				When:        Selection{Slot: "clothing", PartID: "mage_robe_01"},
-				Disables:    []Selection{{Slot: "gear", PartID: "tower_shield_01"}},
-				Reason:      "mage_robe_01 is not compatible with tower_shield_01 in the MVP catalog",
-			},
-			{
-				ID:          "victory-no-tower-shield",
-				Description: "The victory pose keeps arms open and blocks large shields.",
-				When:        Selection{Slot: "pose", PartID: "victory_01"},
-				Disables:    []Selection{{Slot: "gear", PartID: "tower_shield_01"}},
-				Reason:      "victory_01 is not compatible with tower_shield_01 in the MVP catalog",
-			},
-		},
-		ColorZones: colorZones,
-		Defaults: CharacterConfig{
-			SchemaVersion: CurrentSchemaVersion,
-			Species:       "human_01",
-			Body:          "balanced_body_01",
-			Head:          "default_head_01",
-			Clothing:      "basic_armor_01",
-			Gear:          "sword_01",
-			Pose:          "idle_01",
-			Stage:         "plain_stage_01",
-			Base:          "round_base_32mm",
-			Scale:         ScaleConfig{MM: 32},
-			ProductTarget: "stl_print",
-			Colors:        defaultColors(colorZones),
-		},
+func selectionMap(config CharacterConfig) map[string]string {
+	return map[string]string{
+		"species":        config.Species,
+		"body":           config.Body,
+		"head":           config.Head,
+		"clothing":       config.Clothing,
+		"gear":           config.Gear,
+		"pose":           config.Pose,
+		"stage":          config.Stage,
+		"base":           config.Base,
+		"product_target": config.ProductTarget,
 	}
 }
 
-func part(id string, slot string, label string, tags []string, colorZones []string) Part {
-	maxScale := 75
-	if slot == "base" {
-		maxScale = 54
+func (s *Service) validateSelection(selection Selection) error {
+	if selection.Slot == "" || selection.PartID == "" {
+		return errors.New("selection slot and part_id are required")
 	}
-	return Part{
-		ID:           id,
-		Slot:         slot,
-		Label:        label,
-		PreviewAsset: "placeholder://" + slot + "/" + id,
-		RenderAsset:  "worker://" + slot + "/" + id,
-		Tags:         slices.Clone(tags),
-		ColorZones:   slices.Clone(colorZones),
-		PrintConstraints: PrintConstraints{
-			MinThicknessMM: 0.8,
-			MaxScaleMM:     maxScale,
-			SupportsSTL:    slot != "product_target",
-		},
+	if _, ok := s.slotIDs[selection.Slot]; !ok {
+		return fmt.Errorf("unknown slot %q", selection.Slot)
 	}
-}
-
-func defaultColors(zones []ColorZone) map[string]string {
-	colors := make(map[string]string, len(zones))
-	for _, zone := range zones {
-		colors[zone.ID] = zone.Default
+	if _, ok := s.partsBySlot[selection.Slot][selection.PartID]; !ok {
+		return fmt.Errorf("unknown %s part %q", selection.Slot, selection.PartID)
 	}
-	return colors
+	return nil
 }

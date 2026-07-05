@@ -90,7 +90,7 @@ Catalog endpoints:
 - `GET /api/catalog/parts?slot=gear`: parts одного slot.
 - `GET /api/catalog/rules`: compatibility rules.
 
-Catalog seed сейчас находится в backend-коде и содержит:
+Catalog seed сейчас находится в `backend/internal/catalog/seed/catalog.json`, встраивается в Go-бинарник через `embed` и содержит:
 
 - slots: `species`, `body`, `head`, `clothing`, `gear`, `pose`, `stage`, `base`, `product_target`;
 - parts с `preview_asset`, `render_asset`, tags, color zones и print constraints;

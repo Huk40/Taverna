@@ -40,7 +40,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	catalogService := catalog.NewService()
+	catalogService, err := catalog.NewService()
+	if err != nil {
+		logger.Error("catalog seed failed", "error", err)
+		os.Exit(1)
+	}
 	catalogHandler := catalog.NewHandler(catalogService)
 	projectRepo := project.NewRepository(pool)
 	projectHandler := project.NewHandler(projectRepo, catalogService, logger)
