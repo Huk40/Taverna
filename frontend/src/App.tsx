@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { FileDown, FolderOpen, RefreshCw, Save, Trash2 } from "lucide-react";
+import { Copy, FileDown, FolderOpen, RefreshCw, Save, Trash2 } from "lucide-react";
 import CharacterPreview from "./CharacterPreview";
 import { createExport, createProject, deleteProject, getCatalog, getProject, listProjectExports, listProjects, updateProject } from "./api";
 import type { Catalog, CharacterConfig, ExportJob, Part, Project, SlotID } from "./types";
@@ -46,6 +46,7 @@ export default function App() {
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId],
   );
+  const shareURL = useMemo(() => shareURLForProject(selectedProjectId), [selectedProjectId]);
 
   useEffect(() => {
     void boot();
@@ -59,6 +60,22 @@ export default function App() {
       setConfig(normalizeConfig(loadedCatalog.defaults, loadedCatalog));
       const loadedProjects = await listProjects();
       setProjects(loadedProjects);
+      const sharedProjectID = projectIDFromURL();
+      if (sharedProjectID) {
+        try {
+          const sharedProject = await getProject(sharedProjectID);
+          setSelectedProjectId(sharedProject.id);
+          setProjectName(sharedProject.name);
+          setConfig(normalizeConfig(sharedProject.config, loadedCatalog));
+          await syncExportJobs(sharedProject.id);
+          setStatus("Проект открыт по ссылке");
+          return;
+        } catch (error) {
+          clearProjectURLParam();
+          setStatus(`Ссылка на проект недоступна: ${getErrorMessage(error)}`);
+          return;
+        }
+      }
       setStatus(`Каталог ${loadedCatalog.version}, проектов: ${loadedProjects.length}`);
     } catch (error) {
       setStatus(`Ошибка загрузки: ${getErrorMessage(error)}`);
@@ -94,6 +111,7 @@ export default function App() {
         ? await updateProject(selectedProjectId, payload)
         : await createProject(payload);
       setSelectedProjectId(saved.id);
+      setProjectURLParam(saved.id);
       setProjectName(saved.name);
       setConfig(normalizeConfig(saved.config, catalog));
       await refreshProjects();
@@ -116,6 +134,7 @@ export default function App() {
     try {
       const project = await getProject(id);
       setSelectedProjectId(project.id);
+      setProjectURLParam(project.id);
       setProjectName(project.name);
       setConfig(normalizeConfig(project.config, catalog));
       await syncExportJobs(project.id);
@@ -137,6 +156,7 @@ export default function App() {
         setConfig(catalog?.defaults ?? fallbackConfig);
         setLastExport(null);
         setExportJobs([]);
+        clearProjectURLParam();
       }
       await refreshProjects();
       setStatus("Проект удален");
@@ -163,6 +183,24 @@ export default function App() {
       setStatus(`Ошибка export job: ${getErrorMessage(error)}`);
     } finally {
       setIsExporting(false);
+    }
+  }
+
+  async function copyShareLink() {
+    if (!shareURL) {
+      setStatus("Сначала сохраните проект");
+      return;
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(shareURL);
+      } else {
+        copyTextFallback(shareURL);
+      }
+      setStatus("Share link скопирован");
+    } catch (error) {
+      setStatus(`Ошибка копирования: ${getErrorMessage(error)}`);
     }
   }
 
@@ -308,6 +346,15 @@ export default function App() {
                 onChange={(value) => updateSlot("product_target", value)}
               />
             )}
+            <div className="share-box">
+              <label className="field">
+                <span>Share link</span>
+                <input value={shareURL} placeholder="Сохраните проект, чтобы получить ссылку" readOnly />
+              </label>
+              <button className="icon-button" type="button" onClick={copyShareLink} disabled={!shareURL} title="Скопировать share link">
+                <Copy size={18} />
+              </button>
+            </div>
             <button className="secondary-button" type="button" onClick={createExportJob} disabled={!selectedProjectId || isExporting}>
               <FileDown size={18} />
               {isExporting ? "Создание job..." : "Создать export job"}
@@ -505,6 +552,56 @@ function clampNumber(value: number, min: number, max: number): number {
     return min;
   }
   return Math.min(max, Math.max(min, value));
+}
+
+function projectIDFromURL(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const value = new URL(window.location.href).searchParams.get("project");
+  return value && value.trim() ? value : null;
+}
+
+function shareURLForProject(projectID: string | null): string {
+  if (!projectID || typeof window === "undefined") {
+    return "";
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.set("project", projectID);
+  url.hash = "";
+  return url.toString();
+}
+
+function setProjectURLParam(projectID: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.set("project", projectID);
+  url.hash = "";
+  window.history.replaceState(null, "", url);
+}
+
+function clearProjectURLParam() {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.delete("project");
+  url.hash = "";
+  window.history.replaceState(null, "", url);
+}
+
+function copyTextFallback(value: string) {
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
 }
 
 function getErrorMessage(error: unknown) {

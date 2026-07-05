@@ -282,6 +282,18 @@ input[type="color"] {
   font-weight: 800;
 }
 
+.share-box {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  align-items: end;
+  gap: 8px;
+}
+
+.share-box input {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .export-status {
   display: grid;
   gap: 4px;

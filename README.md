@@ -2,7 +2,7 @@
 
 Taverna - MVP+ веб-сервиса для редактирования 3D-фигурки персонажа по catalog-driven архитектуре, близкой к базовым принципам Hero Forge: каталог совместимых частей, версионированная конфигурация персонажа, 3D-preview, сохранение проекта и основа export pipeline под будущую 3D-печать.
 
-Текущая версия остается небольшой, но уже строится вокруг backend-каталога: frontend загружает slots, parts, color zones и compatibility rules через API, пользователь собирает персонажа, сохраняет JSONB-конфигурацию в PostgreSQL и может создать fake export job как подготовку к будущему STL/GLB/3MF worker.
+Текущая версия остается небольшой, но уже строится вокруг backend-каталога: frontend загружает slots, parts, color zones и compatibility rules через API, пользователь собирает персонажа, сохраняет JSONB-конфигурацию в PostgreSQL, открывает проект по share link и может создать fake export job как подготовку к будущему STL/GLB/3MF worker.
 
 ## Запуск
 
@@ -114,6 +114,10 @@ Export endpoints:
 
 На текущем этапе Redis, MinIO и mesh worker намеренно не подключены. API создает job, сразу завершает его placeholder artifact metadata и сохраняет историю export jobs проекта, чтобы зафиксировать будущий контракт.
 
+## Share links
+
+После сохранения проекта frontend формирует ссылку вида `http://localhost:5173/?project={id}`. При открытии такой ссылки приложение загружает каталог, получает проект через `GET /api/projects/{id}` и восстанавливает конфигурацию персонажа вместе с историей export jobs.
+
 ## Что входит в MVP+
 
 - Catalog-driven React editor.
@@ -122,6 +126,7 @@ Export endpoints:
 - Compatibility validation на backend.
 - Three.js preview, который реагирует на species, body, clothing, gear, pose, stage, base, scale и material zones.
 - Сохранение, загрузка, открытие, обновление и удаление проектов.
+- Share link для открытия сохраненного проекта по URL.
 - PostgreSQL таблицы `projects` и `export_jobs`.
 - Fake export job API под будущий STL/GLB/3MF pipeline.
 - Docker Compose для frontend, backend и PostgreSQL.
