@@ -1,8 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Copy, FileDown, FolderOpen, RefreshCw, Save, Trash2 } from "lucide-react";
-import CharacterPreview from "./CharacterPreview";
 import { createExport, createProject, deleteProject, getCatalog, getProject, listProjectExports, listProjects, updateProject } from "./api";
-import type { Catalog, CharacterConfig, ExportJob, Part, Project, SlotID } from "./types";
+import EditorShell from "./EditorShell";
+import type { Catalog, CharacterConfig, EditorCategory, ExportJob, Part, PrintReadiness, Project, SlotID } from "./types";
 
 const fallbackConfig: CharacterConfig = {
   schema_version: 1,
@@ -39,6 +38,7 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [activeCategory, setActiveCategory] = useState<EditorCategory>("species");
   const [status, setStatus] = useState("Готово");
 
   const partsBySlot = useMemo(() => groupPartsBySlot(catalog?.parts ?? []), [catalog]);
@@ -98,8 +98,8 @@ export default function App() {
     }
   }
 
-  async function saveProject(event: FormEvent) {
-    event.preventDefault();
+  async function saveProject(event?: FormEvent) {
+    event?.preventDefault();
     if (!catalog) {
       setStatus("Каталог еще загружается");
       return;
@@ -231,252 +231,37 @@ export default function App() {
     return jobs;
   }
 
-  const currentTargetPart = partsBySlot.product_target?.find((part) => part.id === config.product_target);
-
   return (
-    <main className="app-shell">
-      <section className="workspace">
-        <div className="preview-panel">
-          <div className="preview-toolbar">
-            <div>
-              <p className="eyebrow">Taverna Catalog MVP+</p>
-              <h1>{projectName}</h1>
-            </div>
-            <div className="status-pill">{status}</div>
-          </div>
-          <div className="preview-stage">
-            {!catalog && <div className="preview-overlay">Загрузка каталога</div>}
-            <CharacterPreview config={config} />
-          </div>
-        </div>
-
-        <aside className="control-panel">
-          <form onSubmit={saveProject} className="editor-form">
-            <label className="field wide">
-              <span>name</span>
-              <input value={projectName} onChange={(event) => setProjectName(event.target.value)} />
-            </label>
-
-            {catalog ? (
-              <>
-                {editorSlots.map((slot) => (
-                  <CatalogSelect
-                    key={slot}
-                    config={config}
-                    catalog={catalog}
-                    label={catalog.slots.find((item) => item.id === slot)?.label ?? slot}
-                    slot={slot}
-                    parts={partsBySlot[slot] ?? []}
-                    onChange={(value) => updateSlot(slot, value)}
-                  />
-                ))}
-
-                <label className="field wide">
-                  <span>scale.mm</span>
-                  <input
-                    type="range"
-                    min="24"
-                    max={printReadiness?.maxScale ?? 75}
-                    value={config.scale.mm}
-                    onChange={(event) => updateScale(Number(event.target.value))}
-                  />
-                  <strong>
-                    {config.scale.mm} / {printReadiness?.maxScale ?? 75} mm
-                  </strong>
-                </label>
-
-                {printReadiness && <PrintReadinessPanel readiness={printReadiness} />}
-
-                <div className="color-grid wide">
-                  {catalog.color_zones.map((zone) => (
-                    <ColorField
-                      key={zone.id}
-                      label={zone.label}
-                      value={config.colors[zone.id] ?? zone.default}
-                      onChange={(value) => updateColor(zone.id, value)}
-                    />
-                  ))}
-                </div>
-
-                <button className="primary-button wide" type="submit" disabled={isSaving}>
-                  <Save size={18} />
-                  {isSaving ? "Сохранение..." : "Сохранить проект"}
-                </button>
-              </>
-            ) : (
-              <p className="empty-state wide">Каталог загружается</p>
-            )}
-          </form>
-
-          <div className="projects-panel">
-            <div className="panel-heading">
-              <h2>Проекты</h2>
-              <button className="icon-button" type="button" onClick={refreshProjects} disabled={isLoading} title="Загрузить проекты">
-                <RefreshCw size={18} />
-              </button>
-            </div>
-            <button className="secondary-button" type="button" onClick={refreshProjects} disabled={isLoading}>
-              <FolderOpen size={18} />
-              Загрузить проекты
-            </button>
-
-            <div className="project-list">
-              {projects.map((project) => (
-                <article className={project.id === selectedProject?.id ? "project-item active" : "project-item"} key={project.id}>
-                  <button type="button" onClick={() => openProject(project.id)}>
-                    <span>{project.name}</span>
-                    <small>{new Date(project.updated_at).toLocaleString()}</small>
-                  </button>
-                  <button className="delete-button" type="button" onClick={() => removeProject(project.id)} title="Удалить проект">
-                    <Trash2 size={16} />
-                  </button>
-                </article>
-              ))}
-              {projects.length === 0 && <p className="empty-state">Сохраненных проектов пока нет</p>}
-            </div>
-          </div>
-
-          <div className="projects-panel">
-            <div className="panel-heading">
-              <h2>Share / Export</h2>
-              <span className="mini-badge">{currentTargetPart?.label ?? config.product_target}</span>
-            </div>
-            {catalog && (
-              <CatalogSelect
-                config={config}
-                catalog={catalog}
-                label="Product target"
-                slot="product_target"
-                parts={partsBySlot.product_target ?? []}
-                onChange={(value) => updateSlot("product_target", value)}
-              />
-            )}
-            <div className="share-box">
-              <label className="field">
-                <span>Share link</span>
-                <input value={shareURL} placeholder="Сохраните проект, чтобы получить ссылку" readOnly />
-              </label>
-              <button className="icon-button" type="button" onClick={copyShareLink} disabled={!shareURL} title="Скопировать share link">
-                <Copy size={18} />
-              </button>
-            </div>
-            <button className="secondary-button" type="button" onClick={createExportJob} disabled={!selectedProjectId || isExporting}>
-              <FileDown size={18} />
-              {isExporting ? "Создание job..." : "Создать export job"}
-            </button>
-            {lastExport && (
-              <div className="export-status">
-                <strong>{lastExport.status}</strong>
-                <span>{lastExport.format.toUpperCase()} · {lastExport.id}</span>
-              </div>
-            )}
-            {selectedProjectId ? (
-              <div className="export-list">
-                {exportJobs.map((job) => (
-                  <article className="export-item" key={job.id}>
-                    <div>
-                      <strong>{job.status}</strong>
-                      <span>{job.format.toUpperCase()} · {job.target}</span>
-                    </div>
-                    <small>{new Date(job.updated_at).toLocaleString()}</small>
-                    <code>{job.id}</code>
-                  </article>
-                ))}
-                {exportJobs.length === 0 && <p className="empty-state">Export jobs пока нет</p>}
-              </div>
-            ) : (
-              <p className="empty-state">Сначала сохраните проект</p>
-            )}
-          </div>
-        </aside>
-      </section>
-    </main>
-  );
-}
-
-type CatalogSelectProps = {
-  config: CharacterConfig;
-  catalog: Catalog;
-  label: string;
-  slot: SlotID;
-  parts: Part[];
-  onChange: (value: string) => void;
-};
-
-function CatalogSelect({ config, catalog, label, slot, parts, onChange }: CatalogSelectProps) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-      <select value={selectionFor(config, slot)} onChange={(event) => onChange(event.target.value)}>
-        {parts.map((part) => {
-          const reason = disabledReason(config, catalog, slot, part.id);
-          return (
-            <option key={part.id} value={part.id} disabled={Boolean(reason)}>
-              {part.label}{reason ? " (blocked)" : ""}
-            </option>
-          );
-        })}
-      </select>
-    </label>
-  );
-}
-
-type ColorFieldProps = {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-};
-
-type PrintReadiness = {
-  maxScale: number;
-  constrainedBy: string;
-  minThicknessMM: number;
-  supportsSTL: boolean;
-  activeColorZones: string[];
-  selectedPartCount: number;
-};
-
-type PrintReadinessPanelProps = {
-  readiness: PrintReadiness;
-};
-
-function PrintReadinessPanel({ readiness }: PrintReadinessPanelProps) {
-  return (
-    <div className="readiness-panel wide">
-      <div className="readiness-heading">
-        <strong>Print readiness</strong>
-        <span className={readiness.supportsSTL ? "readiness-ok" : "readiness-warning"}>
-          {readiness.supportsSTL ? "STL ready" : "Needs review"}
-        </span>
-      </div>
-      <div className="readiness-grid">
-        <span>
-          Max scale
-          <strong>{readiness.maxScale} mm</strong>
-        </span>
-        <span>
-          Min thickness
-          <strong>{readiness.minThicknessMM.toFixed(1)} mm</strong>
-        </span>
-        <span>
-          Material zones
-          <strong>{readiness.activeColorZones.length}</strong>
-        </span>
-      </div>
-      <small>
-        Constraint: {readiness.constrainedBy} · {readiness.selectedPartCount} selected parts
-      </small>
-    </div>
-  );
-}
-
-function ColorField({ label, value, onChange }: ColorFieldProps) {
-  return (
-    <label className="color-field">
-      <span>{label}</span>
-      <input type="color" value={value} onChange={(event) => onChange(event.target.value)} />
-      <code>{value}</code>
-    </label>
+    <EditorShell
+      activeCategory={activeCategory}
+      catalog={catalog}
+      config={config}
+      editorSlots={editorSlots}
+      exportJobs={exportJobs}
+      isExporting={isExporting}
+      isLoading={isLoading}
+      isSaving={isSaving}
+      lastExport={lastExport}
+      partsBySlot={partsBySlot}
+      printReadiness={printReadiness}
+      projectName={projectName}
+      projects={projects}
+      selectedProject={selectedProject}
+      selectedProjectId={selectedProjectId}
+      shareURL={shareURL}
+      status={status}
+      onActiveCategoryChange={setActiveCategory}
+      onColorChange={updateColor}
+      onCopyShareLink={() => void copyShareLink()}
+      onCreateExport={() => void createExportJob()}
+      onOpenProject={(id) => void openProject(id)}
+      onProjectNameChange={setProjectName}
+      onRefreshProjects={() => void refreshProjects()}
+      onRemoveProject={(id) => void removeProject(id)}
+      onSave={() => void saveProject()}
+      onScaleChange={updateScale}
+      onSlotChange={updateSlot}
+    />
   );
 }
 

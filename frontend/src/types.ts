@@ -94,3 +94,14 @@ export type ExportJob = {
   created_at: string;
   updated_at: string;
 };
+
+export type EditorCategory = SlotID | "color" | "projects" | "export";
+
+export type PrintReadiness = {
+  maxScale: number;
+  constrainedBy: string;
+  minThicknessMM: number;
+  supportsSTL: boolean;
+  activeColorZones: string[];
+  selectedPartCount: number;
+};

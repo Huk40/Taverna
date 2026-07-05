@@ -2,7 +2,7 @@
 
 Taverna - MVP+ веб-сервиса для редактирования 3D-фигурки персонажа по catalog-driven архитектуре, близкой к базовым принципам Hero Forge: каталог совместимых частей, версионированная конфигурация персонажа, 3D-preview, сохранение проекта и основа export pipeline под будущую 3D-печать.
 
-Текущая версия остается небольшой, но уже строится вокруг backend-каталога: frontend загружает slots, parts, color zones и compatibility rules через API, пользователь собирает персонажа, сохраняет JSONB-конфигурацию в PostgreSQL, открывает проект по share link и может создать fake export job как подготовку к будущему STL/GLB/3MF worker.
+Текущая версия остается небольшой, но уже строится вокруг backend-каталога: frontend загружает slots, parts, color zones и compatibility rules через API, пользователь собирает персонажа в Hero Forge-style editor shell с категориями и карточками parts, сохраняет JSONB-конфигурацию в PostgreSQL, открывает проект по share link и может создать fake export job как подготовку к будущему STL/GLB/3MF worker.
 
 ## Запуск
 
@@ -24,7 +24,7 @@ docker compose up --build
 
 ## Сервисы
 
-- `frontend`: React + TypeScript + Three.js редактор, запускается через Vite.
+- `frontend`: React + TypeScript + Three.js editor shell с категориями, part cards, color/project/export panels; запускается через Vite.
 - `backend`: Go HTTP-сервер с REST API, catalog seed, validation и export job API.
 - `postgres`: PostgreSQL база данных для проектов и export jobs.
 
@@ -120,7 +120,7 @@ Export endpoints:
 
 ## Что входит в MVP+
 
-- Catalog-driven React editor.
+- Catalog-driven React editor shell с category nav, part cards и отдельными panels.
 - Backend catalog API.
 - Versioned `CharacterConfig` со `schema_version: 1`.
 - Compatibility validation на backend.
