@@ -1,4 +1,4 @@
-import type { CharacterConfig, Project } from "./types";
+import type { Catalog, CharacterConfig, CompatibilityRule, ExportJob, Part, Project, Slot } from "./types";
 
 const API_URL = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
 
@@ -54,4 +54,32 @@ export function deleteProject(id: string): Promise<void> {
   return request<void>(`/api/projects/${id}`, {
     method: "DELETE",
   });
+}
+
+export function getCatalog(): Promise<Catalog> {
+  return request<Catalog>("/api/catalog");
+}
+
+export function getCatalogSlots(): Promise<Slot[]> {
+  return request<Slot[]>("/api/catalog/slots");
+}
+
+export function getCatalogParts(slot?: string): Promise<Part[]> {
+  const query = slot ? `?slot=${encodeURIComponent(slot)}` : "";
+  return request<Part[]>(`/api/catalog/parts${query}`);
+}
+
+export function getCatalogRules(): Promise<CompatibilityRule[]> {
+  return request<CompatibilityRule[]>("/api/catalog/rules");
+}
+
+export function createExport(projectId: string, target: string, format?: string): Promise<ExportJob> {
+  return request<ExportJob>(`/api/projects/${projectId}/exports`, {
+    method: "POST",
+    body: JSON.stringify({ target, format }),
+  });
+}
+
+export function getExport(id: string): Promise<ExportJob> {
+  return request<ExportJob>(`/api/exports/${id}`);
 }

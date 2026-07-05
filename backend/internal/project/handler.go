@@ -8,15 +8,18 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"taverna/backend/internal/catalog"
 )
 
 type Handler struct {
-	repo   *Repository
-	logger *slog.Logger
+	repo    *Repository
+	catalog *catalog.Service
+	logger  *slog.Logger
 }
 
-func NewHandler(repo *Repository, logger *slog.Logger) *Handler {
-	return &Handler{repo: repo, logger: logger}
+func NewHandler(repo *Repository, catalogService *catalog.Service, logger *slog.Logger) *Handler {
+	return &Handler{repo: repo, catalog: catalogService, logger: logger}
 }
 
 func (h *Handler) Collection(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +54,7 @@ func (h *Handler) Item(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
-	payload, ok := decodePayload(w, r)
+	payload, ok := h.decodePayload(w, r)
 	if !ok {
 		return
 	}
@@ -95,7 +98,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request, id string) {
-	payload, ok := decodePayload(w, r)
+	payload, ok := h.decodePayload(w, r)
 	if !ok {
 		return
 	}
@@ -124,7 +127,7 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request, id string) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func decodePayload(w http.ResponseWriter, r *http.Request) (ProjectPayload, bool) {
+func (h *Handler) decodePayload(w http.ResponseWriter, r *http.Request) (ProjectPayload, bool) {
 	defer r.Body.Close()
 
 	var payload ProjectPayload
@@ -137,6 +140,11 @@ func decodePayload(w http.ResponseWriter, r *http.Request) (ProjectPayload, bool
 
 	if len(payload.Config) == 0 || !json.Valid(payload.Config) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "config must be valid JSON"})
+		return ProjectPayload{}, false
+	}
+
+	if err := h.catalog.ValidateRawConfig(payload.Config); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return ProjectPayload{}, false
 	}
 

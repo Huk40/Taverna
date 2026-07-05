@@ -116,7 +116,7 @@ func normalizePayload(payload ProjectPayload) ProjectPayload {
 		payload.Name = "Untitled hero"
 	}
 
-	if len(payload.Config) == 0 || !json.Valid(payload.Config) {
+	if len(payload.Config) > 0 && !json.Valid(payload.Config) {
 		payload.Config = []byte(`{}`)
 	}
 

@@ -126,16 +126,16 @@ function rebuildModel(group: THREE.Group, config: CharacterConfig) {
     }
   }
 
-  const scale = THREE.MathUtils.clamp(config.scale_mm / 32, 0.75, 1.5);
+  const scale = THREE.MathUtils.clamp(config.scale.mm / 32, 0.75, 1.5);
   group.scale.setScalar(scale);
 
-  const skin = new THREE.MeshStandardMaterial({ color: 0xc99672, roughness: 0.58 });
-  const armor = new THREE.MeshStandardMaterial({ color: config.colors.armor, roughness: 0.48, metalness: 0.25 });
+  const skin = new THREE.MeshStandardMaterial({ color: config.colors.skin, roughness: 0.58 });
+  const clothing = new THREE.MeshStandardMaterial({ color: config.colors.clothing_primary, roughness: 0.48, metalness: 0.25 });
   const hair = new THREE.MeshStandardMaterial({ color: config.colors.hair, roughness: 0.75 });
-  const cape = new THREE.MeshStandardMaterial({ color: config.colors.cape, roughness: 0.7 });
+  const accent = new THREE.MeshStandardMaterial({ color: config.colors.clothing_secondary, roughness: 0.7 });
   const leather = new THREE.MeshStandardMaterial({ color: 0x4a3328, roughness: 0.8 });
-  const metal = new THREE.MeshStandardMaterial({ color: 0xd8dee9, roughness: 0.36, metalness: 0.75 });
-  const baseMaterial = new THREE.MeshStandardMaterial({ color: 0x29313d, roughness: 0.82, metalness: 0.06 });
+  const metal = new THREE.MeshStandardMaterial({ color: config.colors.gear_metal, roughness: 0.36, metalness: 0.75 });
+  const baseMaterial = new THREE.MeshStandardMaterial({ color: config.colors.stage, roughness: 0.82, metalness: 0.06 });
 
   const baseRadius = config.base.includes("40") ? 0.95 : 0.76;
   const base = new THREE.Mesh(new THREE.CylinderGeometry(baseRadius, baseRadius, 0.16, 64), baseMaterial);
@@ -143,23 +143,25 @@ function rebuildModel(group: THREE.Group, config: CharacterConfig) {
   base.receiveShadow = true;
   group.add(base);
 
-  const bodyHeight = config.body.includes("dwarf") ? 1.25 : config.body.includes("female") ? 1.55 : 1.7;
-  const torsoRadius = config.body.includes("orc") ? 0.4 : 0.34;
+  const bodyHeight = config.body.includes("compact") ? 1.28 : config.body.includes("heroic") ? 1.78 : 1.62;
+  const torsoRadius = config.species.includes("orc") || config.body.includes("heroic") ? 0.42 : 0.34;
   const torso = new THREE.Mesh(new THREE.CapsuleGeometry(torsoRadius, bodyHeight - 0.65, 12, 24), skin);
   torso.position.y = 0.92;
   torso.castShadow = true;
   group.add(torso);
 
-  const armorShape = config.armor.includes("robe")
+  const armorShape = config.clothing.includes("robe")
     ? new THREE.ConeGeometry(0.46, 0.9, 5)
-    : new THREE.BoxGeometry(0.82, 0.74, 0.42);
-  const chest = new THREE.Mesh(armorShape, armor);
+    : config.clothing.includes("plate")
+      ? new THREE.BoxGeometry(0.9, 0.82, 0.48)
+      : new THREE.BoxGeometry(0.82, 0.74, 0.42);
+  const chest = new THREE.Mesh(armorShape, clothing);
   chest.position.y = 1.12;
   chest.castShadow = true;
   group.add(chest);
 
-  if (config.armor.includes("cape") || config.colors.cape !== "#8B0000") {
-    const cloak = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 1.3), cape);
+  if (config.clothing.includes("cloak") || config.clothing.includes("robe")) {
+    const cloak = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 1.3), accent);
     cloak.position.set(0, 0.98, -0.28);
     cloak.rotation.x = -0.13;
     cloak.castShadow = true;
@@ -174,15 +176,13 @@ function rebuildModel(group: THREE.Group, config: CharacterConfig) {
   head.castShadow = true;
   group.add(head);
 
-  if (!config.hair.includes("bald")) {
-    const hairGeometry = config.hair.includes("long")
-      ? new THREE.ConeGeometry(0.32, 0.62, 24)
-      : new THREE.SphereGeometry(0.27, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.52);
-    const hairMesh = new THREE.Mesh(hairGeometry, hair);
-    hairMesh.position.y = bodyHeight + (config.hair.includes("long") ? 0.53 : 0.9);
-    hairMesh.castShadow = true;
-    group.add(hairMesh);
-  }
+  const hairGeometry = config.head.includes("noble")
+    ? new THREE.ConeGeometry(0.32, 0.62, 24)
+    : new THREE.SphereGeometry(0.27, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.52);
+  const hairMesh = new THREE.Mesh(hairGeometry, hair);
+  hairMesh.position.y = bodyHeight + (config.head.includes("noble") ? 0.53 : 0.9);
+  hairMesh.castShadow = true;
+  group.add(hairMesh);
 
   const armLeft = createLimb(leather, 0.12, 0.7);
   const armRight = createLimb(leather, 0.12, 0.7);
@@ -200,12 +200,23 @@ function rebuildModel(group: THREE.Group, config: CharacterConfig) {
   legRight.rotation.z = -0.08;
   group.add(legLeft, legRight);
 
-  if (!config.weapon.includes("none")) {
-    const weapon = createWeapon(config.weapon, metal, leather);
+  if (!config.gear.includes("none")) {
+    const weapon = createWeapon(config.gear, metal, leather);
     weapon.position.set(0.78, 1.1, 0.05);
     weapon.rotation.z = config.pose.includes("guard") ? -0.7 : -0.18;
     weapon.rotation.x = 0.12;
     group.add(weapon);
+  }
+
+  if (config.stage.includes("dungeon") || config.stage.includes("ruins")) {
+    const rubbleMaterial = new THREE.MeshStandardMaterial({ color: config.colors.stage, roughness: 0.9 });
+    for (let index = 0; index < 5; index += 1) {
+      const stone = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.08, 0.18), rubbleMaterial);
+      stone.position.set(-0.52 + index * 0.26, 0.22, 0.48 + Math.sin(index) * 0.1);
+      stone.rotation.y = index * 0.42;
+      stone.castShadow = true;
+      group.add(stone);
+    }
   }
 }
 
@@ -227,6 +238,19 @@ function createWeapon(kind: string, metal: THREE.Material, grip: THREE.Material)
     gem.position.y = 0.78;
     gem.castShadow = true;
     weapon.add(gem);
+  } else if (kind.includes("longbow")) {
+    handle.scale.set(1, 1.55, 1);
+    const bow = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.025, 8, 28, Math.PI), metal);
+    bow.position.y = 0.42;
+    bow.rotation.z = Math.PI / 2;
+    bow.castShadow = true;
+    weapon.add(bow);
+  } else if (kind.includes("shield")) {
+    const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.32, 0.08, 6), metal);
+    shield.position.y = 0.28;
+    shield.rotation.x = Math.PI / 2;
+    shield.castShadow = true;
+    weapon.add(shield);
   } else if (kind.includes("axe")) {
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.08), metal);
     head.position.y = 0.38;

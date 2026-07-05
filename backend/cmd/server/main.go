@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"taverna/backend/internal/app"
+	"taverna/backend/internal/catalog"
 	"taverna/backend/internal/config"
 	"taverna/backend/internal/database"
+	"taverna/backend/internal/exportjob"
 	"taverna/backend/internal/project"
 )
 
@@ -38,9 +40,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	catalogService := catalog.NewService()
+	catalogHandler := catalog.NewHandler(catalogService)
 	projectRepo := project.NewRepository(pool)
-	projectHandler := project.NewHandler(projectRepo, logger)
-	router := app.NewRouter(projectHandler, pool, cfg.CORSAllowedOrigins)
+	projectHandler := project.NewHandler(projectRepo, catalogService, logger)
+	exportRepo := exportjob.NewRepository(pool)
+	exportHandler := exportjob.NewHandler(exportRepo, logger)
+	router := app.NewRouter(projectHandler, catalogHandler, exportHandler, pool, cfg.CORSAllowedOrigins)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,

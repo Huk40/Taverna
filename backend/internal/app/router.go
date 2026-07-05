@@ -5,14 +5,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"taverna/backend/internal/catalog"
+	"taverna/backend/internal/exportjob"
 	"taverna/backend/internal/project"
 )
 
-func NewRouter(projects *project.Handler, pool *pgxpool.Pool, allowedOrigins []string) http.Handler {
+func NewRouter(projects *project.Handler, catalogHandler *catalog.Handler, exports *exportjob.Handler, pool *pgxpool.Pool, allowedOrigins []string) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -35,8 +38,19 @@ func NewRouter(projects *project.Handler, pool *pgxpool.Pool, allowedOrigins []s
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 
+	mux.HandleFunc("/api/catalog", catalogHandler.Catalog)
+	mux.HandleFunc("/api/catalog/slots", catalogHandler.Slots)
+	mux.HandleFunc("/api/catalog/parts", catalogHandler.Parts)
+	mux.HandleFunc("/api/catalog/rules", catalogHandler.Rules)
 	mux.HandleFunc("/api/projects", projects.Collection)
-	mux.HandleFunc("/api/projects/", projects.Item)
+	mux.HandleFunc("/api/projects/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/exports") {
+			exports.ProjectExports(w, r)
+			return
+		}
+		projects.Item(w, r)
+	})
+	mux.HandleFunc("/api/exports/", exports.Item)
 
 	return corsMiddleware(allowedOrigins)(mux)
 }
