@@ -301,6 +301,42 @@ input[type="color"] {
   overflow-wrap: anywhere;
 }
 
+.export-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.export-item {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #141820;
+}
+
+.export-item div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.export-item strong {
+  color: var(--accent-strong);
+}
+
+.export-item span,
+.export-item small,
+.export-item code {
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
 .project-item {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;

@@ -80,6 +80,10 @@ export function createExport(projectId: string, target: string, format?: string)
   });
 }
 
+export function listProjectExports(projectId: string): Promise<ExportJob[]> {
+  return request<ExportJob[]>(`/api/projects/${projectId}/exports`);
+}
+
 export function getExport(id: string): Promise<ExportJob> {
   return request<ExportJob>(`/api/exports/${id}`);
 }

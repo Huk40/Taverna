@@ -1,6 +1,9 @@
 package exportjob
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestNormalizeExportDefaults(t *testing.T) {
 	tests := []struct {
@@ -60,5 +63,27 @@ func TestAllowedExportValues(t *testing.T) {
 	}
 	if allowedFormat("fbx") {
 		t.Fatal("fbx format should not be allowed")
+	}
+}
+
+func TestBuildFakeArtifactIncludesPrintReadiness(t *testing.T) {
+	raw, err := buildFakeArtifact("project-1", "stl_print", "stl")
+	if err != nil {
+		t.Fatalf("buildFakeArtifact() error = %v", err)
+	}
+
+	var artifact map[string]any
+	if err := json.Unmarshal(raw, &artifact); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	if artifact["source_project_id"] != "project-1" {
+		t.Fatalf("source_project_id = %v", artifact["source_project_id"])
+	}
+	if artifact["target"] != "stl_print" || artifact["format"] != "stl" {
+		t.Fatalf("unexpected artifact target/format: %v", artifact)
+	}
+	if _, ok := artifact["print_readiness"].(map[string]any); !ok {
+		t.Fatalf("print_readiness missing from artifact: %v", artifact)
 	}
 }

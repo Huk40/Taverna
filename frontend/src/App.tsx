@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { FileDown, FolderOpen, RefreshCw, Save, Trash2 } from "lucide-react";
 import CharacterPreview from "./CharacterPreview";
-import { createExport, createProject, deleteProject, getCatalog, getProject, listProjects, updateProject } from "./api";
+import { createExport, createProject, deleteProject, getCatalog, getProject, listProjectExports, listProjects, updateProject } from "./api";
 import type { Catalog, CharacterConfig, ExportJob, Part, Project, SlotID } from "./types";
 
 const fallbackConfig: CharacterConfig = {
@@ -35,6 +35,7 @@ export default function App() {
   const [config, setConfig] = useState<CharacterConfig>(fallbackConfig);
   const [projects, setProjects] = useState<Project[]>([]);
   const [lastExport, setLastExport] = useState<ExportJob | null>(null);
+  const [exportJobs, setExportJobs] = useState<ExportJob[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
@@ -96,6 +97,7 @@ export default function App() {
       setProjectName(saved.name);
       setConfig(normalizeConfig(saved.config, catalog));
       await refreshProjects();
+      await syncExportJobs(saved.id);
       setStatus("Проект сохранен");
     } catch (error) {
       setStatus(`Ошибка сохранения: ${getErrorMessage(error)}`);
@@ -116,7 +118,7 @@ export default function App() {
       setSelectedProjectId(project.id);
       setProjectName(project.name);
       setConfig(normalizeConfig(project.config, catalog));
-      setLastExport(null);
+      await syncExportJobs(project.id);
       setStatus("Проект открыт");
     } catch (error) {
       setStatus(`Ошибка открытия: ${getErrorMessage(error)}`);
@@ -134,6 +136,7 @@ export default function App() {
         setProjectName("Taverna hero");
         setConfig(catalog?.defaults ?? fallbackConfig);
         setLastExport(null);
+        setExportJobs([]);
       }
       await refreshProjects();
       setStatus("Проект удален");
@@ -154,6 +157,7 @@ export default function App() {
     try {
       const job = await createExport(selectedProjectId, config.product_target, formatForTarget(config.product_target));
       setLastExport(job);
+      await syncExportJobs(selectedProjectId);
       setStatus(`Export job ${job.status}`);
     } catch (error) {
       setStatus(`Ошибка export job: ${getErrorMessage(error)}`);
@@ -179,6 +183,13 @@ export default function App() {
 
   function updateColor(zone: string, value: string) {
     setConfig((current) => ({ ...current, colors: { ...current.colors, [zone]: value } }));
+  }
+
+  async function syncExportJobs(projectID: string) {
+    const jobs = await listProjectExports(projectID);
+    setExportJobs(jobs);
+    setLastExport(jobs[0] ?? null);
+    return jobs;
   }
 
   const currentTargetPart = partsBySlot.product_target?.find((part) => part.id === config.product_target);
@@ -306,6 +317,23 @@ export default function App() {
                 <strong>{lastExport.status}</strong>
                 <span>{lastExport.format.toUpperCase()} · {lastExport.id}</span>
               </div>
+            )}
+            {selectedProjectId ? (
+              <div className="export-list">
+                {exportJobs.map((job) => (
+                  <article className="export-item" key={job.id}>
+                    <div>
+                      <strong>{job.status}</strong>
+                      <span>{job.format.toUpperCase()} · {job.target}</span>
+                    </div>
+                    <small>{new Date(job.updated_at).toLocaleString()}</small>
+                    <code>{job.id}</code>
+                  </article>
+                ))}
+                {exportJobs.length === 0 && <p className="empty-state">Export jobs пока нет</p>}
+              </div>
+            ) : (
+              <p className="empty-state">Сначала сохраните проект</p>
             )}
           </div>
         </aside>

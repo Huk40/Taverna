@@ -33,8 +33,8 @@ func (r *Repository) Create(ctx context.Context, projectID string, request Creat
 		return ExportJob{}, fmt.Errorf("%w: unknown format %q", ErrInvalidRequest, format)
 	}
 
-	var projectExists bool
-	if err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM projects WHERE id = $1)`, projectID).Scan(&projectExists); err != nil {
+	projectExists, err := r.projectExists(ctx, projectID)
+	if err != nil {
 		return ExportJob{}, fmt.Errorf("check project: %w", err)
 	}
 	if !projectExists {
@@ -52,13 +52,7 @@ func (r *Repository) Create(ctx context.Context, projectID string, request Creat
 		return ExportJob{}, err
 	}
 
-	artifact, err := json.Marshal(map[string]any{
-		"kind":        "fake_export",
-		"target":      target,
-		"format":      format,
-		"message":     "Placeholder export metadata. Redis, MinIO, and the mesh worker are intentionally not connected yet.",
-		"worker_plan": []string{"Redis queue", "mesh worker", "MinIO artifact storage"},
-	})
+	artifact, err := buildFakeArtifact(projectID, target, format)
 	if err != nil {
 		return ExportJob{}, fmt.Errorf("create artifact metadata: %w", err)
 	}
@@ -75,6 +69,41 @@ func (r *Repository) Create(ctx context.Context, projectID string, request Creat
 	return scanJob(row)
 }
 
+func (r *Repository) ListByProject(ctx context.Context, projectID string) ([]ExportJob, error) {
+	projectExists, err := r.projectExists(ctx, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("check project: %w", err)
+	}
+	if !projectExists {
+		return nil, ErrProjectNotFound
+	}
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT id::text, project_id::text, target, format, status, artifact, error, created_at, updated_at
+		FROM export_jobs
+		WHERE project_id = $1
+		ORDER BY updated_at DESC, created_at DESC
+	`, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("list export jobs: %w", err)
+	}
+	defer rows.Close()
+
+	jobs := make([]ExportJob, 0)
+	for rows.Next() {
+		job, err := scanJob(rows)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, job)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list export jobs: %w", err)
+	}
+
+	return jobs, nil
+}
+
 func (r *Repository) Get(ctx context.Context, id string) (ExportJob, error) {
 	row := r.pool.QueryRow(ctx, `
 		SELECT id::text, project_id::text, target, format, status, artifact, error, created_at, updated_at
@@ -83,6 +112,38 @@ func (r *Repository) Get(ctx context.Context, id string) (ExportJob, error) {
 	`, id)
 
 	return scanJob(row)
+}
+
+func (r *Repository) projectExists(ctx context.Context, projectID string) (bool, error) {
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM projects WHERE id = $1)`, projectID).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
+}
+
+func buildFakeArtifact(projectID string, target string, format string) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"kind":              "fake_export",
+		"schema_version":    1,
+		"source_project_id": projectID,
+		"target":            target,
+		"format":            format,
+		"message":           "Placeholder export metadata. Redis, MinIO, and the mesh worker are intentionally not connected yet.",
+		"print_readiness": map[string]any{
+			"status": "metadata_ready",
+			"checks": []string{
+				"project_exists",
+				"config_validated_before_save",
+				"export_job_persisted",
+			},
+			"warnings": []string{
+				"mesh_worker_not_connected",
+				"artifact_file_not_generated",
+			},
+		},
+		"worker_plan": []string{"Redis queue", "mesh worker", "MinIO artifact storage"},
+	})
 }
 
 type jobScanner interface {

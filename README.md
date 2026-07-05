@@ -47,7 +47,7 @@ Endpoints:
 - `PUT /api/projects/{id}`: обновить проект.
 - `DELETE /api/projects/{id}`: удалить проект.
 
-Backend валидирует `config.schema_version`, наличие всех выбранных part IDs в каталоге, color zones и compatibility rules.
+Backend валидирует `config.schema_version`, наличие всех выбранных part IDs в каталоге, color zones, compatibility rules и print constraints выбранных parts.
 
 Пример payload:
 
@@ -102,6 +102,7 @@ Catalog seed сейчас находится в `backend/internal/catalog/seed/c
 Export endpoints:
 
 - `POST /api/projects/{id}/exports`: создать fake export job для проекта.
+- `GET /api/projects/{id}/exports`: получить историю export jobs проекта.
 - `GET /api/exports/{id}`: получить export job.
 
 Статусы jobs:
@@ -111,7 +112,7 @@ Export endpoints:
 - `completed`
 - `failed`
 
-На текущем этапе Redis, MinIO и mesh worker намеренно не подключены. API создает job и сразу завершает его placeholder artifact metadata, чтобы зафиксировать будущий контракт.
+На текущем этапе Redis, MinIO и mesh worker намеренно не подключены. API создает job, сразу завершает его placeholder artifact metadata и сохраняет историю export jobs проекта, чтобы зафиксировать будущий контракт.
 
 ## Что входит в MVP+
 

@@ -206,6 +206,9 @@ func (s *Service) ValidateConfig(config CharacterConfig) error {
 	if config.Scale.MM < 24 || config.Scale.MM > 75 {
 		return fmt.Errorf("%w: scale.mm must be between 24 and 75", ErrInvalidConfig)
 	}
+	if err := s.validatePrintConstraints(config, selections); err != nil {
+		return err
+	}
 
 	if len(config.Colors) == 0 {
 		return fmt.Errorf("%w: colors must include material zones", ErrInvalidConfig)
@@ -253,6 +256,25 @@ func selectionMap(config CharacterConfig) map[string]string {
 		"base":           config.Base,
 		"product_target": config.ProductTarget,
 	}
+}
+
+func (s *Service) validatePrintConstraints(config CharacterConfig, selections map[string]string) error {
+	maxScale := 75
+	constrainedBy := ""
+
+	for slot, partID := range selections {
+		part := s.partsBySlot[slot][partID]
+		if part.PrintConstraints.MaxScaleMM > 0 && part.PrintConstraints.MaxScaleMM < maxScale {
+			maxScale = part.PrintConstraints.MaxScaleMM
+			constrainedBy = part.ID
+		}
+	}
+
+	if config.Scale.MM > maxScale {
+		return fmt.Errorf("%w: scale.mm exceeds print constraint max %d for %s", ErrInvalidConfig, maxScale, constrainedBy)
+	}
+
+	return nil
 }
 
 func (s *Service) validateSelection(selection Selection) error {

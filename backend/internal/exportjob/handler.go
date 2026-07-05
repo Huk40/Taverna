@@ -21,11 +21,6 @@ func NewHandler(repo *Repository, logger *slog.Logger) *Handler {
 }
 
 func (h *Handler) ProjectExports(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
-		return
-	}
-
 	projectID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/projects/"), "/exports")
 	projectID = strings.Trim(projectID, "/")
 	if projectID == "" || strings.Contains(projectID, "/") {
@@ -33,6 +28,17 @@ func (h *Handler) ProjectExports(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	switch r.Method {
+	case http.MethodPost:
+		h.createProjectExport(w, r, projectID)
+	case http.MethodGet:
+		h.listProjectExports(w, r, projectID)
+	default:
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+	}
+}
+
+func (h *Handler) createProjectExport(w http.ResponseWriter, r *http.Request, projectID string) {
 	defer r.Body.Close()
 	var request CreateRequest
 	if r.Body != nil {
@@ -70,6 +76,23 @@ func (h *Handler) ProjectExports(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusCreated, job)
+}
+
+func (h *Handler) listProjectExports(w http.ResponseWriter, r *http.Request, projectID string) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	jobs, err := h.repo.ListByProject(ctx, projectID)
+	if err != nil {
+		if errors.Is(err, ErrProjectNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
+			return
+		}
+		h.serverError(w, "list export jobs", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, jobs)
 }
 
 func (h *Handler) Item(w http.ResponseWriter, r *http.Request) {

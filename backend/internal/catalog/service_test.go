@@ -62,6 +62,17 @@ func TestValidateConfigRejectsCompatibilityConflict(t *testing.T) {
 	}
 }
 
+func TestValidateConfigRejectsScaleAbovePrintConstraint(t *testing.T) {
+	service := mustService(t)
+	config := service.Catalog().Defaults
+	config.Scale.MM = 60
+
+	err := service.ValidateConfig(config)
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got %v", err)
+	}
+}
+
 func TestValidateSeedRejectsRuleWithUnknownPart(t *testing.T) {
 	service := mustService(t)
 	seed := service.Catalog()
