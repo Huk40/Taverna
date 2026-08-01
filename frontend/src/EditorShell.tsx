@@ -606,7 +606,7 @@ function AssetPanel({
                   <span>Label</span>
                   <input value={editLabel} onChange={(event) => setEditLabel(event.target.value)} placeholder={asset.label} />
                 </label>
-                <AssetAnchorEditor anchors={editAnchors} title="Asset anchors" onChange={setEditAnchors} />
+                <AssetAnchorEditor anchors={editAnchors} metadata={asset.metadata} title="Asset anchors" onChange={setEditAnchors} />
                 <div className="asset-actions">
                   <button className="wide-command primary-action" type="button" onClick={() => void saveEditingAsset(asset)} disabled={isUpdatingAsset}>
                     <Save size={16} />
@@ -682,12 +682,14 @@ function AssetGeometrySummary({ metadata }: AssetGeometrySummaryProps) {
 
 type AssetAnchorEditorProps = {
   anchors: ModelAssetAssemblyPoint[];
+  metadata?: GeometryMetadata;
   title: string;
   onChange: (anchors: ModelAssetAssemblyPoint[]) => void;
 };
 
-function AssetAnchorEditor({ anchors, title, onChange }: AssetAnchorEditorProps) {
+function AssetAnchorEditor({ anchors, metadata, title, onChange }: AssetAnchorEditorProps) {
   const visibleAnchors = anchors.length ? anchors : [defaultUploadAnchor(1)];
+  const anchorPresets = anchorPresetsForMetadata(metadata);
 
   function updateAnchor(index: number, patch: Partial<ModelAssetAssemblyPoint>) {
     onChange(visibleAnchors.map((anchor, itemIndex) => (itemIndex === index ? { ...anchor, ...patch } : anchor)));
@@ -734,6 +736,20 @@ function AssetAnchorEditor({ anchors, title, onChange }: AssetAnchorEditorProps)
             <span>Asset anchor label</span>
             <input value={anchor.label} onChange={(event) => updateAnchor(index, { label: event.target.value })} placeholder="Origin anchor" />
           </label>
+          {anchorPresets.length > 0 && (
+            <div className="anchor-preset-row">
+              {anchorPresets.map((preset) => (
+                <button
+                  className="topbar-button compact-action"
+                  key={preset.label}
+                  type="button"
+                  onClick={() => updateAnchor(index, { position: preset.position })}
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+          )}
           <VectorControl label="Anchor position" step={0.05} value={anchor.position} onChange={(position) => updateAnchor(index, { position })} />
           <VectorControl label="Anchor rotation" step={5} value={anchor.rotation} onChange={(rotation) => updateAnchor(index, { rotation })} />
         </div>
@@ -1279,6 +1295,30 @@ function cloneAnchors(anchors: ModelAssetAssemblyPoint[]): ModelAssetAssemblyPoi
     position: [...anchor.position] as Vector3Tuple,
     rotation: [...anchor.rotation] as Vector3Tuple,
   }));
+}
+
+function anchorPresetsForMetadata(metadata?: GeometryMetadata): Array<{ label: string; position: Vector3Tuple }> {
+  const bounds = metadata?.status === "parsed" ? metadata.bounds : undefined;
+  if (!bounds) {
+    return [];
+  }
+
+  const [minX, minY, minZ] = bounds.min;
+  const [maxX, maxY, maxZ] = bounds.max;
+  const [centerX, centerY, centerZ] = bounds.center;
+  return [
+    { label: "Center", position: roundVectorForAnchor([centerX, centerY, centerZ]) },
+    { label: "Bottom", position: roundVectorForAnchor([centerX, minY, centerZ]) },
+    { label: "Top", position: roundVectorForAnchor([centerX, maxY, centerZ]) },
+    { label: "Left", position: roundVectorForAnchor([minX, centerY, centerZ]) },
+    { label: "Right", position: roundVectorForAnchor([maxX, centerY, centerZ]) },
+    { label: "Front", position: roundVectorForAnchor([centerX, centerY, maxZ]) },
+    { label: "Back", position: roundVectorForAnchor([centerX, centerY, minZ]) },
+  ];
+}
+
+function roundVectorForAnchor(value: Vector3Tuple): Vector3Tuple {
+  return value.map((item) => Math.round(item * 1000) / 1000) as Vector3Tuple;
 }
 
 function nextAnchorIndex(anchors: ModelAssetAssemblyPoint[]): number {

@@ -590,6 +590,17 @@ input[type="color"] {
   background: #141920;
 }
 
+.anchor-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-width: 0;
+}
+
+.anchor-preset-row .compact-action {
+  flex: 1 1 78px;
+}
+
 .asset-edit-panel {
   display: grid;
   gap: 10px;
