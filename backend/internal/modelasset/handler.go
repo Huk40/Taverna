@@ -333,6 +333,19 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
+	references, err := h.repo.ReferencingProjects(ctx, id)
+	if err != nil {
+		h.serverError(w, "check model asset project references", err)
+		return
+	}
+	if len(references) > 0 {
+		writeJSON(w, http.StatusConflict, map[string]any{
+			"error":    "model asset is used by saved projects",
+			"projects": references,
+		})
+		return
+	}
+
 	if err := h.repo.Delete(ctx, id); err != nil {
 		h.handleRepositoryError(w, "delete model asset", err)
 		return

@@ -123,6 +123,49 @@ func (r *Repository) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (r *Repository) ReferencingProjects(ctx context.Context, id string) ([]ProjectReference, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, nil
+	}
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT id::text, name
+		FROM projects
+		WHERE EXISTS (
+			SELECT 1
+			FROM jsonb_array_elements(
+				CASE
+					WHEN jsonb_typeof(config->'assembly'->'placements') = 'array'
+					THEN config->'assembly'->'placements'
+					ELSE '[]'::jsonb
+				END
+			) AS placement
+			WHERE placement->>'asset_id' = $1
+		)
+		ORDER BY updated_at DESC, created_at DESC
+		LIMIT 20
+	`, id)
+	if err != nil {
+		return nil, fmt.Errorf("query project references for model asset: %w", err)
+	}
+	defer rows.Close()
+
+	references := make([]ProjectReference, 0)
+	for rows.Next() {
+		var reference ProjectReference
+		if err := rows.Scan(&reference.ID, &reference.Name); err != nil {
+			return nil, fmt.Errorf("scan model asset project reference: %w", err)
+		}
+		references = append(references, reference)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read model asset project references: %w", err)
+	}
+
+	return references, nil
+}
+
 func (r *Repository) MissingIDs(ctx context.Context, ids []string) ([]string, error) {
 	unique := uniqueNonEmpty(ids)
 	if len(unique) == 0 {

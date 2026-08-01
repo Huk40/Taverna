@@ -124,7 +124,7 @@ Model asset endpoints:
 - `GET /api/model-assets/{id}`: получить metadata одной модели.
 - `PUT /api/model-assets/{id}`: обновить `label` и/или `assembly_points` без повторной загрузки файла.
 - `GET /api/model-assets/{id}/file`: получить файл модели для Three.js preview.
-- `DELETE /api/model-assets/{id}`: удалить metadata и файл.
+- `DELETE /api/model-assets/{id}`: удалить metadata и файл. Если asset уже используется в сохраненных `projects.config.assembly.placements`, backend возвращает `409 Conflict`, чтобы не сломать server assembly manifest/export у существующих проектов.
 - `GET /api/model-assets/assembly-points`: список поддержанных target points для сборки.
 
 Поддержанные форматы upload: `.glb`, `.gltf`, `.obj`, `.stl`, `.3mf`. Файлы хранятся локально в backend storage volume, metadata хранится в PostgreSQL таблице `model_assets`. Проект сохраняет ссылки на загруженные модели в `config.assembly.placements`, а backend проверяет, что referenced asset IDs существуют.

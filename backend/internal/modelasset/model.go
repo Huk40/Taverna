@@ -53,6 +53,11 @@ type GeometryBounds struct {
 	Center Vector3 `json:"center"`
 }
 
+type ProjectReference struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 type CreateRequest struct {
 	ID              string
 	Label           string
