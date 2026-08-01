@@ -15,6 +15,7 @@ import (
 	"taverna/backend/internal/config"
 	"taverna/backend/internal/database"
 	"taverna/backend/internal/exportjob"
+	"taverna/backend/internal/modelasset"
 	"taverna/backend/internal/project"
 )
 
@@ -47,10 +48,12 @@ func main() {
 	}
 	catalogHandler := catalog.NewHandler(catalogService)
 	projectRepo := project.NewRepository(pool)
-	projectHandler := project.NewHandler(projectRepo, catalogService, logger)
+	modelAssetRepo := modelasset.NewRepository(pool)
+	modelAssetHandler := modelasset.NewHandler(modelAssetRepo, catalogService, cfg.ModelAssetDir, cfg.MaxModelAssetBytes, logger)
+	projectHandler := project.NewHandler(projectRepo, catalogService, modelAssetRepo, logger)
 	exportRepo := exportjob.NewRepository(pool)
 	exportHandler := exportjob.NewHandler(exportRepo, logger)
-	router := app.NewRouter(projectHandler, catalogHandler, exportHandler, pool, cfg.CORSAllowedOrigins)
+	router := app.NewRouter(projectHandler, catalogHandler, exportHandler, modelAssetHandler, pool, cfg.CORSAllowedOrigins)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,

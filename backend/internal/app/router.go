@@ -12,10 +12,11 @@ import (
 
 	"taverna/backend/internal/catalog"
 	"taverna/backend/internal/exportjob"
+	"taverna/backend/internal/modelasset"
 	"taverna/backend/internal/project"
 )
 
-func NewRouter(projects *project.Handler, catalogHandler *catalog.Handler, exports *exportjob.Handler, pool *pgxpool.Pool, allowedOrigins []string) http.Handler {
+func NewRouter(projects *project.Handler, catalogHandler *catalog.Handler, exports *exportjob.Handler, modelAssets *modelasset.Handler, pool *pgxpool.Pool, allowedOrigins []string) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -42,6 +43,9 @@ func NewRouter(projects *project.Handler, catalogHandler *catalog.Handler, expor
 	mux.HandleFunc("/api/catalog/slots", catalogHandler.Slots)
 	mux.HandleFunc("/api/catalog/parts", catalogHandler.Parts)
 	mux.HandleFunc("/api/catalog/rules", catalogHandler.Rules)
+	mux.HandleFunc("/api/model-assets", modelAssets.Collection)
+	mux.HandleFunc("/api/model-assets/assembly-points", modelAssets.AssemblyPoints)
+	mux.HandleFunc("/api/model-assets/", modelAssets.Item)
 	mux.HandleFunc("/api/projects", projects.Collection)
 	mux.HandleFunc("/api/projects/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/exports") {

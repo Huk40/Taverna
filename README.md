@@ -2,7 +2,7 @@
 
 Taverna - MVP+ веб-сервиса для редактирования 3D-фигурки персонажа по catalog-driven архитектуре, близкой к базовым принципам Hero Forge: каталог совместимых частей, версионированная конфигурация персонажа, 3D-preview, сохранение проекта и основа export pipeline под будущую 3D-печать.
 
-Текущая версия остается небольшой, но уже строится вокруг backend-каталога: frontend загружает slots, parts, color zones и compatibility rules через API, пользователь собирает персонажа в Hero Forge-style editor shell с категориями и карточками parts, сохраняет JSONB-конфигурацию в PostgreSQL, открывает проект по share link и может создать fake export job как подготовку к будущему STL/GLB/3MF worker.
+Текущая версия остается небольшой, но уже строится вокруг backend-каталога: frontend загружает slots, parts, color zones, compatibility rules и пользовательские 3D assets через API, пользователь собирает персонажа в Hero Forge-style editor shell с категориями, карточками parts и assembly placements, сохраняет JSONB-конфигурацию в PostgreSQL, открывает проект по share link и может создать fake export job как подготовку к будущему STL/GLB/3MF worker.
 
 ## Запуск
 
@@ -24,9 +24,9 @@ docker compose up --build
 
 ## Сервисы
 
-- `frontend`: React + TypeScript + Three.js editor shell с категориями, part cards, color/project/export panels; запускается через Vite.
-- `backend`: Go HTTP-сервер с REST API, catalog seed, validation и export job API.
-- `postgres`: PostgreSQL база данных для проектов и export jobs.
+- `frontend`: React + TypeScript + Three.js editor shell с категориями, part cards, asset upload, assembly/color/project/export panels; запускается через Vite.
+- `backend`: Go HTTP-сервер с REST API, catalog seed, model asset upload/storage, validation и export job API.
+- `postgres`: PostgreSQL база данных для проектов, model assets и export jobs.
 
 ## Project API
 
@@ -75,6 +75,21 @@ Backend валидирует `config.schema_version`, наличие всех в
       "clothing_secondary": "#8B0000",
       "gear_metal": "#d8dee9",
       "stage": "#29313d"
+    },
+    "assembly": {
+      "placements": [
+        {
+          "id": "placement-1",
+          "slot": "gear",
+          "attachment_point": "right_hand",
+          "asset_id": "uploaded-model-uuid",
+          "transform": {
+            "position": [0, 0, 0],
+            "rotation": [0, 0, 0],
+            "scale": 1
+          }
+        }
+      ]
     }
   }
 }
@@ -97,6 +112,20 @@ Catalog seed сейчас находится в `backend/internal/catalog/seed/c
 - color zones;
 - compatibility rules, которые backend применяет при сохранении проекта.
 
+## Model Asset API
+
+Model asset endpoints:
+
+- `GET /api/model-assets`: список загруженных 3D-моделей.
+- `GET /api/model-assets?slot=gear`: модели одного slot.
+- `POST /api/model-assets`: multipart upload поля `file`, `label`, `slot`, `attachment_point`.
+- `GET /api/model-assets/{id}`: получить metadata одной модели.
+- `GET /api/model-assets/{id}/file`: получить файл модели для Three.js preview.
+- `DELETE /api/model-assets/{id}`: удалить metadata и файл.
+- `GET /api/model-assets/assembly-points`: список поддержанных target points для сборки.
+
+Поддержанные форматы upload: `.glb`, `.gltf`, `.obj`, `.stl`, `.3mf`. Файлы хранятся локально в backend storage volume, metadata хранится в PostgreSQL таблице `model_assets`. Проект сохраняет ссылки на загруженные модели в `config.assembly.placements`, а backend проверяет, что referenced asset IDs существуют.
+
 ## Export API
 
 Export endpoints:
@@ -112,7 +141,7 @@ Export endpoints:
 - `completed`
 - `failed`
 
-На текущем этапе Redis, MinIO и mesh worker намеренно не подключены. API создает job, сразу завершает его placeholder artifact metadata и сохраняет историю export jobs проекта, чтобы зафиксировать будущий контракт.
+На текущем этапе Redis, MinIO и mesh worker намеренно не подключены. API создает job, сразу завершает его placeholder artifact metadata, включает краткий assembly summary по uploaded assets и сохраняет историю export jobs проекта, чтобы зафиксировать будущий контракт.
 
 ## Share links
 
@@ -123,12 +152,14 @@ Export endpoints:
 - Catalog-driven React editor shell с category nav, part cards и отдельными panels.
 - Backend catalog API.
 - Versioned `CharacterConfig` со `schema_version: 1`.
+- User model asset upload API с локальным server storage.
+- Assembly placements по точкам сборки (`right_hand`, `left_hand`, `head_mount`, `back_mount`, `base_mount`, `stage_anchor`).
 - Compatibility validation на backend.
 - Print-readiness summary на frontend с динамическим максимумом `scale.mm`.
-- Three.js preview, который реагирует на species, body, clothing, gear, pose, stage, base, scale и material zones.
+- Three.js preview, который реагирует на species, body, clothing, gear, pose, stage, base, scale, material zones и uploaded assembly assets.
 - Сохранение, загрузка, открытие, обновление и удаление проектов.
 - Share link для открытия сохраненного проекта по URL.
-- PostgreSQL таблицы `projects` и `export_jobs`.
+- PostgreSQL таблицы `projects`, `model_assets` и `export_jobs`.
 - Fake export job API под будущий STL/GLB/3MF pipeline.
 - Docker Compose для frontend, backend и PostgreSQL.
 
@@ -138,6 +169,7 @@ Export endpoints:
 - Blender worker.
 - Redis очередь.
 - MinIO файловое хранилище.
+- Auth-scoped personal asset library.
 - Оплата.
 - Личный кабинет, регистрация и авторизация.
 - Админка заказов.

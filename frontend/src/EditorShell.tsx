@@ -1,6 +1,8 @@
+import { useMemo, useState, type FormEvent } from "react";
 import {
   AlertTriangle,
   Box,
+  Boxes,
   CheckCircle2,
   Circle,
   Copy,
@@ -14,14 +16,30 @@ import {
   Smile,
   Sword,
   Trash2,
+  UploadCloud,
   UserRound,
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import CharacterPreview from "./CharacterPreview";
-import type { Catalog, CharacterConfig, EditorCategory, ExportJob, Part, PrintReadiness, Project, SlotID } from "./types";
+import type {
+  AssemblyPlacement,
+  AssemblyPointTarget,
+  Catalog,
+  CharacterConfig,
+  EditorCategory,
+  ExportJob,
+  ModelAsset,
+  Part,
+  PrintReadiness,
+  Project,
+  SlotID,
+  Vector3Tuple,
+} from "./types";
 
 type EditorShellProps = {
   activeCategory: EditorCategory;
+  assemblyTargets: AssemblyPointTarget[];
   catalog: Catalog | null;
   config: CharacterConfig;
   editorSlots: SlotID[];
@@ -29,7 +47,9 @@ type EditorShellProps = {
   isExporting: boolean;
   isLoading: boolean;
   isSaving: boolean;
+  isUploadingAsset: boolean;
   lastExport: ExportJob | null;
+  modelAssets: ModelAsset[];
   partsBySlot: Record<string, Part[]>;
   printReadiness: PrintReadiness | null;
   projectName: string;
@@ -38,21 +58,27 @@ type EditorShellProps = {
   selectedProjectId: string | null;
   shareURL: string;
   status: string;
+  onAddAssemblyPlacement: (asset: ModelAsset) => void;
   onActiveCategoryChange: (category: EditorCategory) => void;
   onColorChange: (zone: string, value: string) => void;
   onCopyShareLink: () => void;
   onCreateExport: () => void;
+  onDeleteModelAsset: (id: string) => void;
   onOpenProject: (id: string) => void;
   onProjectNameChange: (value: string) => void;
   onRefreshProjects: () => void;
   onRemoveProject: (id: string) => void;
+  onRemoveAssemblyPlacement: (id: string) => void;
   onSave: () => void;
   onScaleChange: (value: number) => void;
   onSlotChange: (slot: SlotID, partID: string) => void;
+  onUpdateAssemblyPlacement: (id: string, patch: Partial<AssemblyPlacement>) => void;
+  onUploadAsset: (file: File, label: string, slot: SlotID, attachmentPoint: string) => void;
 };
 
 export default function EditorShell({
   activeCategory,
+  assemblyTargets,
   catalog,
   config,
   editorSlots,
@@ -60,7 +86,9 @@ export default function EditorShell({
   isExporting,
   isLoading,
   isSaving,
+  isUploadingAsset,
   lastExport,
+  modelAssets,
   partsBySlot,
   printReadiness,
   projectName,
@@ -69,17 +97,22 @@ export default function EditorShell({
   selectedProjectId,
   shareURL,
   status,
+  onAddAssemblyPlacement,
   onActiveCategoryChange,
   onColorChange,
   onCopyShareLink,
   onCreateExport,
+  onDeleteModelAsset,
   onOpenProject,
   onProjectNameChange,
   onRefreshProjects,
   onRemoveProject,
+  onRemoveAssemblyPlacement,
   onSave,
   onScaleChange,
   onSlotChange,
+  onUpdateAssemblyPlacement,
+  onUploadAsset,
 }: EditorShellProps) {
   const currentTargetPart = partsBySlot.product_target?.find((part) => part.id === config.product_target);
 
@@ -124,7 +157,7 @@ export default function EditorShell({
         <section className="preview-panel" aria-label="3D editor viewport">
           <div className="preview-stage">
             {!catalog && <div className="preview-overlay">Загрузка каталога</div>}
-            <CharacterPreview config={config} />
+            <CharacterPreview config={config} modelAssets={modelAssets} />
           </div>
           <div className="viewport-footer">
             <span>{categoryTitle(activeCategory, catalog)}</span>
@@ -135,28 +168,36 @@ export default function EditorShell({
         <aside className="inspector-panel">
           {renderInspector({
             activeCategory,
+            assemblyTargets,
             catalog,
             config,
             editorSlots,
             exportJobs,
             isExporting,
             isLoading,
+            isUploadingAsset,
             lastExport,
+            modelAssets,
             partsBySlot,
             printReadiness,
             projects,
             selectedProject,
             selectedProjectId,
             shareURL,
+            onAddAssemblyPlacement,
             onActiveCategoryChange,
             onColorChange,
             onCopyShareLink,
             onCreateExport,
+            onDeleteModelAsset,
             onOpenProject,
             onRefreshProjects,
             onRemoveProject,
+            onRemoveAssemblyPlacement,
             onScaleChange,
             onSlotChange,
+            onUpdateAssemblyPlacement,
+            onUploadAsset,
           })}
         </aside>
       </section>
@@ -167,28 +208,36 @@ export default function EditorShell({
 type InspectorProps = Pick<
   EditorShellProps,
   | "activeCategory"
+  | "assemblyTargets"
   | "catalog"
   | "config"
   | "editorSlots"
   | "exportJobs"
   | "isExporting"
   | "isLoading"
+  | "isUploadingAsset"
   | "lastExport"
+  | "modelAssets"
   | "partsBySlot"
   | "printReadiness"
   | "projects"
   | "selectedProject"
   | "selectedProjectId"
   | "shareURL"
+  | "onAddAssemblyPlacement"
   | "onActiveCategoryChange"
   | "onColorChange"
   | "onCopyShareLink"
   | "onCreateExport"
+  | "onDeleteModelAsset"
   | "onOpenProject"
   | "onRefreshProjects"
   | "onRemoveProject"
+  | "onRemoveAssemblyPlacement"
   | "onScaleChange"
   | "onSlotChange"
+  | "onUpdateAssemblyPlacement"
+  | "onUploadAsset"
 >;
 
 function renderInspector(props: InspectorProps) {
@@ -211,6 +260,28 @@ function renderInspector(props: InspectorProps) {
   }
 
   switch (props.activeCategory) {
+    case "assets":
+      return (
+        <AssetPanel
+          assemblyTargets={props.assemblyTargets}
+          isUploadingAsset={props.isUploadingAsset}
+          modelAssets={props.modelAssets}
+          onAddAssemblyPlacement={props.onAddAssemblyPlacement}
+          onDeleteModelAsset={props.onDeleteModelAsset}
+          onUploadAsset={props.onUploadAsset}
+        />
+      );
+    case "assembly":
+      return (
+        <AssemblyPanel
+          assemblyTargets={props.assemblyTargets}
+          config={props.config}
+          modelAssets={props.modelAssets}
+          onAddAssemblyPlacement={props.onAddAssemblyPlacement}
+          onRemoveAssemblyPlacement={props.onRemoveAssemblyPlacement}
+          onUpdateAssemblyPlacement={props.onUpdateAssemblyPlacement}
+        />
+      );
     case "color":
       return <ColorPanel catalog={props.catalog} config={props.config} onColorChange={props.onColorChange} />;
     case "projects":
@@ -254,7 +325,7 @@ type CategoryNavProps = {
 };
 
 function CategoryNav({ activeCategory, catalog, editorSlots, onChange }: CategoryNavProps) {
-  const categories: EditorCategory[] = [...editorSlots, "color", "projects", "export"];
+  const categories: EditorCategory[] = [...editorSlots, "assets", "assembly", "color", "projects", "export"];
 
   return (
     <nav className="category-nav" aria-label="Editor categories">
@@ -351,6 +422,252 @@ function PartBrowser({ catalog, config, parts, slot, onSlotChange }: PartBrowser
       })}
       {parts.length === 0 && <p className="empty-state">В этой категории пока нет parts</p>}
     </div>
+  );
+}
+
+type AssetPanelProps = {
+  assemblyTargets: AssemblyPointTarget[];
+  isUploadingAsset: boolean;
+  modelAssets: ModelAsset[];
+  onAddAssemblyPlacement: (asset: ModelAsset) => void;
+  onDeleteModelAsset: (id: string) => void;
+  onUploadAsset: (file: File, label: string, slot: SlotID, attachmentPoint: string) => void;
+};
+
+function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssemblyPlacement, onDeleteModelAsset, onUploadAsset }: AssetPanelProps) {
+  const slotOptions = useMemo(() => uniqueSlotsForTargets(assemblyTargets), [assemblyTargets]);
+  const [file, setFile] = useState<File | null>(null);
+  const [label, setLabel] = useState("");
+  const [slot, setSlot] = useState<SlotID>((slotOptions[0] ?? "gear") as SlotID);
+  const [attachmentPoint, setAttachmentPoint] = useState("right_hand");
+  const targetsForSlot = assemblyTargets.filter((target) => target.slot === slot);
+  const selectedAttachmentPoint = targetsForSlot.some((target) => target.id === attachmentPoint)
+    ? attachmentPoint
+    : targetsForSlot[0]?.id ?? "";
+
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!file || !selectedAttachmentPoint) {
+      return;
+    }
+    onUploadAsset(file, label || stripExtension(file.name), slot, selectedAttachmentPoint);
+    setFile(null);
+    setLabel("");
+  }
+
+  return (
+    <div className="inspector-content">
+      <PanelHeading title="Assets" subtitle="Upload user GLB, OBJ, STL, or 3MF models to the server" />
+      <form className="asset-upload-form" onSubmit={handleSubmit}>
+        <label className="file-drop">
+          <UploadCloud size={20} />
+          <span>{file ? file.name : "Choose 3D model file"}</span>
+          <input
+            accept=".glb,.gltf,.obj,.stl,.3mf"
+            type="file"
+            onChange={(event) => {
+              const nextFile = event.target.files?.[0] ?? null;
+              setFile(nextFile);
+              if (nextFile && !label) {
+                setLabel(stripExtension(nextFile.name));
+              }
+            }}
+          />
+        </label>
+        <label className="field">
+          <span>Label</span>
+          <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder={file ? stripExtension(file.name) : "Custom sword"} />
+        </label>
+        <label className="field">
+          <span>Slot</span>
+          <select
+            value={slot}
+            onChange={(event) => {
+              const nextSlot = event.target.value as SlotID;
+              const nextTarget = assemblyTargets.find((target) => target.slot === nextSlot);
+              setSlot(nextSlot);
+              setAttachmentPoint(nextTarget?.id ?? "");
+            }}
+          >
+            {slotOptions.map((item) => (
+              <option key={item} value={item}>
+                {item}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Attachment point</span>
+          <select value={selectedAttachmentPoint} onChange={(event) => setAttachmentPoint(event.target.value)}>
+            {targetsForSlot.map((target) => (
+              <option key={target.id} value={target.id}>
+                {target.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="wide-command primary-action" type="submit" disabled={!file || !selectedAttachmentPoint || isUploadingAsset}>
+          <UploadCloud size={18} />
+          {isUploadingAsset ? "Uploading..." : "Upload model"}
+        </button>
+      </form>
+
+      <div className="asset-list">
+        {modelAssets.map((asset) => (
+          <article className="model-asset-card" key={asset.id}>
+            <div className="asset-title-row">
+              <strong>{asset.label}</strong>
+              <span className="mini-badge">{asset.format.toUpperCase()}</span>
+            </div>
+            <span className="part-card-assets">{asset.file_name}</span>
+            <span className="part-meta">
+              <span>{asset.slot} / {asset.attachment_point}</span>
+              <span>{formatBytes(asset.size_bytes)}</span>
+            </span>
+            <div className="asset-actions">
+              <button className="wide-command" type="button" onClick={() => onAddAssemblyPlacement(asset)}>
+                <Boxes size={16} />
+                Add to assembly
+              </button>
+              <button className="delete-button" type="button" onClick={() => onDeleteModelAsset(asset.id)} title="Delete model asset">
+                <Trash2 size={16} />
+              </button>
+            </div>
+          </article>
+        ))}
+        {modelAssets.length === 0 && <p className="empty-state">Upload a model to start assembling custom parts</p>}
+      </div>
+    </div>
+  );
+}
+
+type AssemblyPanelProps = {
+  assemblyTargets: AssemblyPointTarget[];
+  config: CharacterConfig;
+  modelAssets: ModelAsset[];
+  onAddAssemblyPlacement: (asset: ModelAsset) => void;
+  onRemoveAssemblyPlacement: (id: string) => void;
+  onUpdateAssemblyPlacement: (id: string, patch: Partial<AssemblyPlacement>) => void;
+};
+
+function AssemblyPanel({
+  assemblyTargets,
+  config,
+  modelAssets,
+  onAddAssemblyPlacement,
+  onRemoveAssemblyPlacement,
+  onUpdateAssemblyPlacement,
+}: AssemblyPanelProps) {
+  const assetsByID = useMemo(() => new Map(modelAssets.map((asset) => [asset.id, asset])), [modelAssets]);
+
+  return (
+    <div className="inspector-content">
+      <PanelHeading title="Assembly" subtitle="Attach uploaded models to stable character assembly points" />
+      <div className="assembly-source-list">
+        {modelAssets.map((asset) => (
+          <button className="part-card compact" type="button" key={asset.id} onClick={() => onAddAssemblyPlacement(asset)}>
+            <span className="part-card-header">
+              <strong>{asset.label}</strong>
+              <Boxes size={16} />
+            </span>
+            <span className="part-meta">
+              <span>{asset.slot}</span>
+              <span>{asset.attachment_point}</span>
+            </span>
+          </button>
+        ))}
+        {modelAssets.length === 0 && <p className="empty-state">No uploaded models yet</p>}
+      </div>
+
+      <div className="placement-list">
+        {config.assembly.placements.map((placement) => {
+          const asset = assetsByID.get(placement.asset_id);
+          const targets = assemblyTargets.filter((target) => target.slot === placement.slot);
+          return (
+            <article className="placement-card" key={placement.id}>
+              <div className="asset-title-row">
+                <strong>{asset?.label ?? "Missing asset"}</strong>
+                <button className="delete-button small" type="button" onClick={() => onRemoveAssemblyPlacement(placement.id)} title="Remove placement">
+                  <X size={15} />
+                </button>
+              </div>
+              <label className="field">
+                <span>Attachment point</span>
+                <select
+                  value={placement.attachment_point}
+                  onChange={(event) => onUpdateAssemblyPlacement(placement.id, { attachment_point: event.target.value })}
+                >
+                  {targets.map((target) => (
+                    <option key={target.id} value={target.id}>
+                      {target.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <VectorControl
+                label="Position"
+                step={0.05}
+                value={placement.transform.position}
+                onChange={(position) => onUpdateAssemblyPlacement(placement.id, { transform: { ...placement.transform, position } })}
+              />
+              <VectorControl
+                label="Rotation"
+                step={5}
+                value={placement.transform.rotation}
+                onChange={(rotation) => onUpdateAssemblyPlacement(placement.id, { transform: { ...placement.transform, rotation } })}
+              />
+              <label className="field">
+                <span>Scale</span>
+                <input
+                  type="number"
+                  min="0.05"
+                  max="10"
+                  step="0.05"
+                  value={placement.transform.scale}
+                  onChange={(event) =>
+                    onUpdateAssemblyPlacement(placement.id, {
+                      transform: { ...placement.transform, scale: Number(event.target.value) },
+                    })
+                  }
+                />
+              </label>
+            </article>
+          );
+        })}
+        {config.assembly.placements.length === 0 && <p className="empty-state">No assembly placements yet</p>}
+      </div>
+    </div>
+  );
+}
+
+type VectorControlProps = {
+  label: string;
+  step: number;
+  value: Vector3Tuple;
+  onChange: (value: Vector3Tuple) => void;
+};
+
+function VectorControl({ label, step, value, onChange }: VectorControlProps) {
+  const axes = ["x", "y", "z"] as const;
+  return (
+    <fieldset className="vector-control">
+      <legend>{label}</legend>
+      {axes.map((axis, index) => (
+        <label key={axis}>
+          <span>{axis}</span>
+          <input
+            type="number"
+            step={step}
+            value={value[index]}
+            onChange={(event) => {
+              const next = [...value] as Vector3Tuple;
+              next[index] = Number(event.target.value);
+              onChange(next);
+            }}
+          />
+        </label>
+      ))}
+    </fieldset>
   );
 }
 
@@ -534,6 +851,10 @@ function PrintReadinessPanel({ readiness }: PrintReadinessPanelProps) {
           Material zones
           <strong>{readiness.activeColorZones.length}</strong>
         </span>
+        <span>
+          Uploaded assets
+          <strong>{readiness.uploadedAssetCount}</strong>
+        </span>
       </div>
       <small>
         Constraint: {readiness.constrainedBy} · {readiness.selectedPartCount} selected parts
@@ -557,8 +878,35 @@ function PanelHeading({ title, subtitle }: PanelHeadingProps) {
   );
 }
 
+function uniqueSlotsForTargets(targets: AssemblyPointTarget[]): SlotID[] {
+  const seen = new Set<string>();
+  const slots: SlotID[] = [];
+  for (const target of targets) {
+    if (target.slot === "product_target" || seen.has(target.slot)) {
+      continue;
+    }
+    seen.add(target.slot);
+    slots.push(target.slot);
+  }
+  return slots;
+}
+
+function stripExtension(fileName: string): string {
+  return fileName.replace(/\.[^.]+$/, "");
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) {
+    return `${value} B`;
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KB`;
+  }
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function isSlotCategory(category: EditorCategory): category is SlotID {
-  return !["color", "projects", "export"].includes(category);
+  return !["assets", "assembly", "color", "projects", "export"].includes(category);
 }
 
 function categoryTitle(category: EditorCategory, catalog: Catalog | null): string {
@@ -568,6 +916,10 @@ function categoryTitle(category: EditorCategory, catalog: Catalog | null): strin
   switch (category) {
     case "color":
       return "Color";
+    case "assets":
+      return "Assets";
+    case "assembly":
+      return "Assembly";
     case "projects":
       return "Projects";
     case "export":
@@ -600,6 +952,10 @@ function iconForCategory(category: EditorCategory): LucideIcon {
       return Box;
     case "base":
       return Circle;
+    case "assets":
+      return UploadCloud;
+    case "assembly":
+      return Boxes;
     case "color":
       return Palette;
     case "projects":

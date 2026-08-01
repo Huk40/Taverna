@@ -73,6 +73,43 @@ func TestValidateConfigRejectsScaleAbovePrintConstraint(t *testing.T) {
 	}
 }
 
+func TestValidateConfigAllowsAssemblyPlacement(t *testing.T) {
+	service := mustService(t)
+	config := service.Catalog().Defaults
+	config.Assembly.Placements = []AssemblyPlacement{{
+		ID:              "placement-1",
+		Slot:            "gear",
+		AttachmentPoint: "right_hand",
+		AssetID:         "11111111-1111-4111-8111-111111111111",
+		Transform: AssemblyTransform{
+			Position: Vector3{0.1, 0, 0},
+			Rotation: Vector3{0, 15, 0},
+			Scale:    1,
+		},
+	}}
+
+	if err := service.ValidateConfig(config); err != nil {
+		t.Fatalf("assembly placement should be valid: %v", err)
+	}
+}
+
+func TestValidateConfigRejectsInvalidAssemblyPoint(t *testing.T) {
+	service := mustService(t)
+	config := service.Catalog().Defaults
+	config.Assembly.Placements = []AssemblyPlacement{{
+		ID:              "placement-1",
+		Slot:            "gear",
+		AttachmentPoint: "head_mount",
+		AssetID:         "11111111-1111-4111-8111-111111111111",
+		Transform:       AssemblyTransform{Scale: 1},
+	}}
+
+	err := service.ValidateConfig(config)
+	if !errors.Is(err, ErrInvalidConfig) {
+		t.Fatalf("expected ErrInvalidConfig, got %v", err)
+	}
+}
+
 func TestValidateSeedRejectsRuleWithUnknownPart(t *testing.T) {
 	service := mustService(t)
 	seed := service.Catalog()

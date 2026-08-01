@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"regexp"
 
 	_ "embed"
@@ -11,10 +12,23 @@ import (
 
 const CurrentSchemaVersion = 1
 
+const maxAssemblyPlacements = 24
+
 var (
 	ErrInvalidConfig = errors.New("invalid character config")
 	hexColorPattern  = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
 )
+
+var assemblyPointTargets = []AssemblyPointTarget{
+	{ID: "body_core", Slot: "body", Label: "Body core", Description: "Centered socket for torso-scale replacement meshes."},
+	{ID: "head_mount", Slot: "head", Label: "Head mount", Description: "Top neck socket for heads, helmets, horns, and hair meshes."},
+	{ID: "torso_mount", Slot: "clothing", Label: "Torso mount", Description: "Chest socket for armor, robes, and clothing shells."},
+	{ID: "back_mount", Slot: "clothing", Label: "Back mount", Description: "Back socket for cloaks, backpacks, wings, and banners."},
+	{ID: "right_hand", Slot: "gear", Label: "Right hand", Description: "Weapon socket aligned to the procedural right hand."},
+	{ID: "left_hand", Slot: "gear", Label: "Left hand", Description: "Off-hand socket for shields, tools, and paired weapons."},
+	{ID: "stage_anchor", Slot: "stage", Label: "Stage anchor", Description: "Ground-level anchor for terrain and scene props."},
+	{ID: "base_mount", Slot: "base", Label: "Base mount", Description: "Center of the miniature base."},
+}
 
 //go:embed seed/catalog.json
 var seedCatalogJSON []byte
@@ -41,6 +55,10 @@ func NewService() (*Service, error) {
 }
 
 func newService(catalog Catalog) *Service {
+	if catalog.Defaults.Assembly.Placements == nil {
+		catalog.Defaults.Assembly.Placements = []AssemblyPlacement{}
+	}
+
 	partsBySlot := make(map[string]map[string]Part)
 	for _, part := range catalog.Parts {
 		if _, ok := partsBySlot[part.Slot]; !ok {
@@ -161,6 +179,24 @@ func (s *Service) Rules() []CompatibilityRule {
 	return s.catalog.Rules
 }
 
+func (s *Service) AssemblyPointTargets() []AssemblyPointTarget {
+	return assemblyPointTargets
+}
+
+func (s *Service) HasSlot(slot string) bool {
+	_, ok := s.slotIDs[slot]
+	return ok
+}
+
+func IsAssemblyPointTarget(slot string, attachmentPoint string) bool {
+	for _, target := range assemblyPointTargets {
+		if target.Slot == slot && target.ID == attachmentPoint {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) Parts(slot string) []Part {
 	if slot == "" {
 		return s.catalog.Parts
@@ -176,16 +212,25 @@ func (s *Service) Parts(slot string) []Part {
 }
 
 func (s *Service) ValidateRawConfig(raw json.RawMessage) error {
+	config, err := s.DecodeRawConfig(raw)
+	if err != nil {
+		return err
+	}
+
+	return s.ValidateConfig(config)
+}
+
+func (s *Service) DecodeRawConfig(raw json.RawMessage) (CharacterConfig, error) {
 	if len(raw) == 0 || !json.Valid(raw) {
-		return fmt.Errorf("%w: config must be valid JSON", ErrInvalidConfig)
+		return CharacterConfig{}, fmt.Errorf("%w: config must be valid JSON", ErrInvalidConfig)
 	}
 
 	var config CharacterConfig
 	if err := json.Unmarshal(raw, &config); err != nil {
-		return fmt.Errorf("%w: %v", ErrInvalidConfig, err)
+		return CharacterConfig{}, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
 
-	return s.ValidateConfig(config)
+	return config, nil
 }
 
 func (s *Service) ValidateConfig(config CharacterConfig) error {
@@ -230,6 +275,10 @@ func (s *Service) ValidateConfig(config CharacterConfig) error {
 		}
 	}
 
+	if err := s.validateAssembly(config.Assembly); err != nil {
+		return err
+	}
+
 	for _, rule := range s.catalog.Rules {
 		if selections[rule.When.Slot] != rule.When.PartID {
 			continue
@@ -242,6 +291,59 @@ func (s *Service) ValidateConfig(config CharacterConfig) error {
 	}
 
 	return nil
+}
+
+func (s *Service) validateAssembly(assembly AssemblyConfig) error {
+	if len(assembly.Placements) > maxAssemblyPlacements {
+		return fmt.Errorf("%w: assembly.placements cannot exceed %d items", ErrInvalidConfig, maxAssemblyPlacements)
+	}
+
+	seen := make(map[string]struct{})
+	for index, placement := range assembly.Placements {
+		if placement.ID == "" {
+			return fmt.Errorf("%w: assembly.placements[%d].id is required", ErrInvalidConfig, index)
+		}
+		if _, ok := seen[placement.ID]; ok {
+			return fmt.Errorf("%w: duplicate assembly placement %q", ErrInvalidConfig, placement.ID)
+		}
+		seen[placement.ID] = struct{}{}
+
+		if placement.AssetID == "" {
+			return fmt.Errorf("%w: assembly placement %q asset_id is required", ErrInvalidConfig, placement.ID)
+		}
+		if _, ok := s.slotIDs[placement.Slot]; !ok || placement.Slot == "product_target" {
+			return fmt.Errorf("%w: assembly placement %q has unknown slot %q", ErrInvalidConfig, placement.ID, placement.Slot)
+		}
+		if !IsAssemblyPointTarget(placement.Slot, placement.AttachmentPoint) {
+			return fmt.Errorf("%w: assembly placement %q cannot use attachment point %q for slot %q", ErrInvalidConfig, placement.ID, placement.AttachmentPoint, placement.Slot)
+		}
+		if err := validateAssemblyTransform(placement.Transform); err != nil {
+			return fmt.Errorf("%w: assembly placement %q has invalid transform: %v", ErrInvalidConfig, placement.ID, err)
+		}
+	}
+
+	return nil
+}
+
+func validateAssemblyTransform(transform AssemblyTransform) error {
+	for _, value := range transform.Position {
+		if !finiteWithin(value, -20, 20) {
+			return errors.New("position values must be finite and between -20 and 20")
+		}
+	}
+	for _, value := range transform.Rotation {
+		if !finiteWithin(value, -360, 360) {
+			return errors.New("rotation values must be finite and between -360 and 360")
+		}
+	}
+	if !finiteWithin(transform.Scale, 0.05, 10) {
+		return errors.New("scale must be finite and between 0.05 and 10")
+	}
+	return nil
+}
+
+func finiteWithin(value float64, min float64, max float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && value >= min && value <= max
 }
 
 func selectionMap(config CharacterConfig) map[string]string {

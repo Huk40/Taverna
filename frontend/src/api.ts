@@ -1,4 +1,4 @@
-import type { Catalog, CharacterConfig, CompatibilityRule, ExportJob, Part, Project, Slot } from "./types";
+import type { AssemblyPointTarget, Catalog, CharacterConfig, CompatibilityRule, ExportJob, ModelAsset, Part, Project, Slot } from "./types";
 
 const API_URL = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
 
@@ -8,12 +8,16 @@ type ProjectPayload = {
 };
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const headers = options?.body instanceof FormData
+    ? options?.headers
+    : {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      };
+
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -86,4 +90,48 @@ export function listProjectExports(projectId: string): Promise<ExportJob[]> {
 
 export function getExport(id: string): Promise<ExportJob> {
   return request<ExportJob>(`/api/exports/${id}`);
+}
+
+export function listModelAssets(slot?: string): Promise<ModelAsset[]> {
+  const query = slot ? `?slot=${encodeURIComponent(slot)}` : "";
+  return request<ModelAsset[]>(`/api/model-assets${query}`);
+}
+
+export function uploadModelAsset(payload: {
+  file: File;
+  label: string;
+  slot: string;
+  attachmentPoint: string;
+  assemblyPoints?: unknown;
+}): Promise<ModelAsset> {
+  const formData = new FormData();
+  formData.append("file", payload.file);
+  formData.append("label", payload.label);
+  formData.append("slot", payload.slot);
+  formData.append("attachment_point", payload.attachmentPoint);
+  if (payload.assemblyPoints) {
+    formData.append("assembly_points", JSON.stringify(payload.assemblyPoints));
+  }
+
+  return request<ModelAsset>("/api/model-assets", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export function deleteModelAsset(id: string): Promise<void> {
+  return request<void>(`/api/model-assets/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function getAssemblyPointTargets(): Promise<AssemblyPointTarget[]> {
+  return request<AssemblyPointTarget[]>("/api/model-assets/assembly-points");
+}
+
+export function assetFileURL(asset: ModelAsset): string {
+  if (asset.url.startsWith("http://") || asset.url.startsWith("https://")) {
+    return asset.url;
+  }
+  return `${API_URL}${asset.url}`;
 }

@@ -1,7 +1,33 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { createExport, createProject, deleteProject, getCatalog, getProject, listProjectExports, listProjects, updateProject } from "./api";
+import {
+  createExport,
+  createProject,
+  deleteModelAsset,
+  deleteProject,
+  getAssemblyPointTargets,
+  getCatalog,
+  getProject,
+  listModelAssets,
+  listProjectExports,
+  listProjects,
+  updateProject,
+  uploadModelAsset,
+} from "./api";
 import EditorShell from "./EditorShell";
-import type { Catalog, CharacterConfig, EditorCategory, ExportJob, Part, PrintReadiness, Project, SlotID } from "./types";
+import type {
+  AssemblyPlacement,
+  AssemblyPointTarget,
+  Catalog,
+  CharacterConfig,
+  EditorCategory,
+  ExportJob,
+  ModelAsset,
+  Part,
+  PrintReadiness,
+  Project,
+  SlotID,
+  Vector3Tuple,
+} from "./types";
 
 const fallbackConfig: CharacterConfig = {
   schema_version: 1,
@@ -23,6 +49,7 @@ const fallbackConfig: CharacterConfig = {
     gear_metal: "#d8dee9",
     stage: "#29313d",
   },
+  assembly: { placements: [] },
 };
 
 const editorSlots: SlotID[] = ["species", "head", "body", "clothing", "gear", "pose", "stage", "base"];
@@ -35,9 +62,12 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [lastExport, setLastExport] = useState<ExportJob | null>(null);
   const [exportJobs, setExportJobs] = useState<ExportJob[]>([]);
+  const [modelAssets, setModelAssets] = useState<ModelAsset[]>([]);
+  const [assemblyTargets, setAssemblyTargets] = useState<AssemblyPointTarget[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isUploadingAsset, setIsUploadingAsset] = useState(false);
   const [activeCategory, setActiveCategory] = useState<EditorCategory>("species");
   const [status, setStatus] = useState("Готово");
 
@@ -56,11 +86,17 @@ export default function App() {
   async function boot() {
     setIsLoading(true);
     try {
-      const loadedCatalog = await getCatalog();
+      const [loadedCatalog, loadedProjects, loadedAssets, loadedTargets] = await Promise.all([
+        getCatalog(),
+        listProjects(),
+        listModelAssets(),
+        getAssemblyPointTargets(),
+      ]);
       setCatalog(loadedCatalog);
       setConfig(normalizeConfig(loadedCatalog.defaults, loadedCatalog));
-      const loadedProjects = await listProjects();
       setProjects(loadedProjects);
+      setModelAssets(loadedAssets);
+      setAssemblyTargets(loadedTargets);
       const sharedProjectID = projectIDFromURL();
       if (sharedProjectID) {
         try {
@@ -95,6 +131,51 @@ export default function App() {
       setStatus(`Ошибка загрузки: ${getErrorMessage(error)}`);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function refreshModelAssets() {
+    try {
+      const loaded = await listModelAssets();
+      setModelAssets(loaded);
+      setStatus(`Загружено 3D-моделей: ${loaded.length}`);
+    } catch (error) {
+      setStatus(`Ошибка загрузки 3D-моделей: ${getErrorMessage(error)}`);
+    }
+  }
+
+  async function uploadAsset(file: File, label: string, slot: SlotID, attachmentPoint: string) {
+    setIsUploadingAsset(true);
+    try {
+      const asset = await uploadModelAsset({
+        file,
+        label,
+        slot,
+        attachmentPoint,
+      });
+      setModelAssets((current) => [asset, ...current.filter((item) => item.id !== asset.id)]);
+      setActiveCategory("assembly");
+      setStatus(`3D-модель загружена: ${asset.label}`);
+    } catch (error) {
+      setStatus(`Ошибка загрузки 3D-модели: ${getErrorMessage(error)}`);
+    } finally {
+      setIsUploadingAsset(false);
+    }
+  }
+
+  async function removeModelAsset(id: string) {
+    try {
+      await deleteModelAsset(id);
+      setModelAssets((current) => current.filter((asset) => asset.id !== id));
+      setConfig((current) => ({
+        ...current,
+        assembly: {
+          placements: current.assembly.placements.filter((placement) => placement.asset_id !== id),
+        },
+      }));
+      setStatus("3D-модель удалена");
+    } catch (error) {
+      setStatus(`Ошибка удаления 3D-модели: ${getErrorMessage(error)}`);
     }
   }
 
@@ -224,6 +305,58 @@ export default function App() {
     setConfig((current) => ({ ...current, colors: { ...current.colors, [zone]: value } }));
   }
 
+  function addAssemblyPlacement(asset: ModelAsset) {
+    const placement: AssemblyPlacement = {
+      id: makeClientID("placement"),
+      slot: asset.slot,
+      attachment_point: asset.attachment_point,
+      asset_id: asset.id,
+      transform: {
+        position: [0, 0, 0],
+        rotation: [0, 0, 0],
+        scale: 1,
+      },
+    };
+
+    setConfig((current) => ({
+      ...current,
+      assembly: {
+        placements: [...current.assembly.placements, placement],
+      },
+    }));
+    setActiveCategory("assembly");
+    setStatus(`${asset.label} добавлен в сборку`);
+  }
+
+  function removeAssemblyPlacement(id: string) {
+    setConfig((current) => ({
+      ...current,
+      assembly: {
+        placements: current.assembly.placements.filter((placement) => placement.id !== id),
+      },
+    }));
+  }
+
+  function updateAssemblyPlacement(id: string, patch: Partial<AssemblyPlacement>) {
+    setConfig((current) => ({
+      ...current,
+      assembly: {
+        placements: current.assembly.placements.map((placement) =>
+          placement.id === id
+            ? {
+                ...placement,
+                ...patch,
+                transform: {
+                  ...placement.transform,
+                  ...patch.transform,
+                },
+              }
+            : placement,
+        ),
+      },
+    }));
+  }
+
   async function syncExportJobs(projectID: string) {
     const jobs = await listProjectExports(projectID);
     setExportJobs(jobs);
@@ -234,6 +367,7 @@ export default function App() {
   return (
     <EditorShell
       activeCategory={activeCategory}
+      assemblyTargets={assemblyTargets}
       catalog={catalog}
       config={config}
       editorSlots={editorSlots}
@@ -241,7 +375,9 @@ export default function App() {
       isExporting={isExporting}
       isLoading={isLoading}
       isSaving={isSaving}
+      isUploadingAsset={isUploadingAsset}
       lastExport={lastExport}
+      modelAssets={modelAssets}
       partsBySlot={partsBySlot}
       printReadiness={printReadiness}
       projectName={projectName}
@@ -250,17 +386,22 @@ export default function App() {
       selectedProjectId={selectedProjectId}
       shareURL={shareURL}
       status={status}
+      onAddAssemblyPlacement={addAssemblyPlacement}
       onActiveCategoryChange={setActiveCategory}
       onColorChange={updateColor}
       onCopyShareLink={() => void copyShareLink()}
       onCreateExport={() => void createExportJob()}
+      onDeleteModelAsset={(id) => void removeModelAsset(id)}
       onOpenProject={(id) => void openProject(id)}
       onProjectNameChange={setProjectName}
       onRefreshProjects={() => void refreshProjects()}
       onRemoveProject={(id) => void removeProject(id)}
+      onRemoveAssemblyPlacement={removeAssemblyPlacement}
       onSave={() => void saveProject()}
       onScaleChange={updateScale}
       onSlotChange={updateSlot}
+      onUpdateAssemblyPlacement={updateAssemblyPlacement}
+      onUploadAsset={(file, label, slot, attachmentPoint) => void uploadAsset(file, label, slot, attachmentPoint)}
     />
   );
 }
@@ -294,7 +435,8 @@ function normalizeConfig(config: Partial<CharacterConfig> & Record<string, unkno
       ),
     },
     product_target: asString(config.product_target) ?? defaults.product_target,
-    colors: { ...defaults.colors, ...(isRecord(config.colors) ? config.colors : {}) },
+    colors: normalizeColors(defaults.colors, config.colors),
+    assembly: normalizeAssembly(config.assembly),
   };
 
   return normalizeSelections(normalized, catalog);
@@ -317,6 +459,57 @@ function normalizeSelections(config: CharacterConfig, catalog: Catalog): Charact
   }
   next.scale.mm = clampNumber(next.scale.mm, 24, maxScaleForConfig(next, catalog));
   return next;
+}
+
+function normalizeAssembly(value: unknown): CharacterConfig["assembly"] {
+  if (!isRecord(value) || !Array.isArray(value.placements)) {
+    return { placements: [] };
+  }
+
+  return {
+    placements: value.placements
+      .map((item, index) => normalizePlacement(item, index))
+      .filter((placement): placement is AssemblyPlacement => Boolean(placement)),
+  };
+}
+
+function normalizeColors(defaults: Record<string, string>, value: unknown): Record<string, string> {
+  const colors = { ...defaults };
+  if (!isRecord(value)) {
+    return colors;
+  }
+  for (const [zone, color] of Object.entries(value)) {
+    if (typeof color === "string") {
+      colors[zone] = color;
+    }
+  }
+  return colors;
+}
+
+function normalizePlacement(value: unknown, index: number): AssemblyPlacement | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const transform = isRecord(value.transform) ? value.transform : {};
+  const slot = asString(value.slot);
+  const attachmentPoint = asString(value.attachment_point);
+  const assetID = asString(value.asset_id);
+  if (!slot || !attachmentPoint || !assetID) {
+    return null;
+  }
+
+  return {
+    id: asString(value.id) ?? `placement-${index + 1}`,
+    slot: slot as SlotID,
+    attachment_point: attachmentPoint,
+    asset_id: assetID,
+    transform: {
+      position: asVector3(transform.position, [0, 0, 0]),
+      rotation: asVector3(transform.rotation, [0, 0, 0]),
+      scale: clampNumber(asNumber(transform.scale, 1), 0.05, 10),
+    },
+  };
 }
 
 function selectionFor(config: CharacterConfig, slot: SlotID): string {
@@ -379,6 +572,7 @@ function printReadinessForConfig(config: CharacterConfig, catalog: Catalog): Pri
     supportsSTL,
     activeColorZones: [...colorZones].sort(),
     selectedPartCount: geometryParts.length,
+    uploadedAssetCount: config.assembly.placements.length,
   };
 }
 
@@ -423,8 +617,23 @@ function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, string> {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function asNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function asVector3(value: unknown, fallback: Vector3Tuple): Vector3Tuple {
+  if (!Array.isArray(value) || value.length !== 3) {
+    return fallback;
+  }
+  return [
+    asNumber(value[0], fallback[0]),
+    asNumber(value[1], fallback[1]),
+    asNumber(value[2], fallback[2]),
+  ];
 }
 
 function clampNumber(value: number, min: number, max: number): number {
@@ -432,6 +641,13 @@ function clampNumber(value: number, min: number, max: number): number {
     return min;
   }
   return Math.min(max, Math.max(min, value));
+}
+
+function makeClientID(prefix: string): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return `${prefix}-${crypto.randomUUID()}`;
+  }
+  return `${prefix}-${Date.now()}-${Math.round(Math.random() * 100000)}`;
 }
 
 function projectIDFromURL(): string | null {

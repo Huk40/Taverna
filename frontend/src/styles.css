@@ -180,6 +180,8 @@ p {
   align-content: start;
   gap: 8px;
   min-width: 0;
+  max-height: calc(100vh - 98px);
+  overflow: auto;
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -477,6 +479,110 @@ input[type="color"] {
   gap: 10px;
 }
 
+.asset-upload-form,
+.asset-list,
+.assembly-source-list,
+.placement-list {
+  display: grid;
+  gap: 10px;
+}
+
+.file-drop {
+  position: relative;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 116px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: #121820;
+  text-align: center;
+}
+
+.file-drop input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.model-asset-card,
+.placement-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #141920;
+}
+
+.asset-title-row,
+.asset-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.asset-title-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.asset-actions .wide-command {
+  flex: 1 1 auto;
+}
+
+.assembly-source-list {
+  grid-template-columns: 1fr 1fr;
+}
+
+.part-card.compact {
+  min-height: 84px;
+}
+
+.delete-button.small {
+  width: 34px;
+  min-height: 34px;
+  flex-basis: 34px;
+}
+
+.vector-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.vector-control legend {
+  padding: 0 5px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.vector-control label {
+  display: grid;
+  gap: 5px;
+}
+
+.vector-control span {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.vector-control input {
+  min-height: 36px;
+  padding: 0 8px;
+}
+
 .color-tile {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 48px;
@@ -656,6 +762,7 @@ input[type="color"] {
   .category-nav {
     display: flex;
     overflow-x: auto;
+    max-height: none;
   }
 
   .category-button {
@@ -670,5 +777,10 @@ input[type="color"] {
   .viewport-footer {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .assembly-source-list,
+  .vector-control {
+    grid-template-columns: 1fr;
   }
 }

@@ -24,6 +24,25 @@ export type CharacterConfig = {
   };
   product_target: string;
   colors: Record<string, string>;
+  assembly: AssemblyConfig;
+};
+
+export type Vector3Tuple = [number, number, number];
+
+export type AssemblyConfig = {
+  placements: AssemblyPlacement[];
+};
+
+export type AssemblyPlacement = {
+  id: string;
+  slot: SlotID;
+  attachment_point: string;
+  asset_id: string;
+  transform: {
+    position: Vector3Tuple;
+    rotation: Vector3Tuple;
+    scale: number;
+  };
 };
 
 export type Slot = {
@@ -95,7 +114,36 @@ export type ExportJob = {
   updated_at: string;
 };
 
-export type EditorCategory = SlotID | "color" | "projects" | "export";
+export type ModelAssetAssemblyPoint = {
+  id: string;
+  label: string;
+  position: Vector3Tuple;
+  rotation: Vector3Tuple;
+};
+
+export type ModelAsset = {
+  id: string;
+  label: string;
+  slot: SlotID;
+  attachment_point: string;
+  file_name: string;
+  content_type: string;
+  format: "glb" | "gltf" | "obj" | "stl" | "3mf";
+  size_bytes: number;
+  url: string;
+  assembly_points: ModelAssetAssemblyPoint[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type AssemblyPointTarget = {
+  id: string;
+  slot: SlotID;
+  label: string;
+  description: string;
+};
+
+export type EditorCategory = SlotID | "assets" | "assembly" | "color" | "projects" | "export";
 
 export type PrintReadiness = {
   maxScale: number;
@@ -104,4 +152,5 @@ export type PrintReadiness = {
   supportsSTL: boolean;
   activeColorZones: string[];
   selectedPartCount: number;
+  uploadedAssetCount: number;
 };

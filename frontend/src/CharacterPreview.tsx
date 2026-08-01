@@ -1,23 +1,32 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { CharacterConfig } from "./types";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { assetFileURL } from "./api";
+import type { AssemblyPlacement, CharacterConfig, ModelAsset, Vector3Tuple } from "./types";
 
 type Props = {
   config: CharacterConfig;
+  modelAssets: ModelAsset[];
 };
 
-export default function CharacterPreview({ config }: Props) {
+export default function CharacterPreview({ config, modelAssets }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const configRef = useRef(config);
+  const modelAssetsRef = useRef(modelAssets);
   const modelRef = useRef<THREE.Group | null>(null);
+  const rebuildTokenRef = useRef(0);
 
   useEffect(() => {
     configRef.current = config;
+    modelAssetsRef.current = modelAssets;
     if (modelRef.current) {
-      rebuildModel(modelRef.current, config);
+      const token = bumpRebuildToken(rebuildTokenRef);
+      rebuildModel(modelRef.current, config, modelAssets, () => token === rebuildTokenRef.current);
     }
-  }, [config]);
+  }, [config, modelAssets]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -67,7 +76,8 @@ export default function CharacterPreview({ config }: Props) {
     const model = new THREE.Group();
     modelRef.current = model;
     scene.add(model);
-    rebuildModel(model, configRef.current);
+    const initialToken = bumpRebuildToken(rebuildTokenRef);
+    rebuildModel(model, configRef.current, modelAssetsRef.current, () => initialToken === rebuildTokenRef.current);
 
     const resize = () => {
       const parent = canvas.parentElement;
@@ -118,7 +128,7 @@ export default function CharacterPreview({ config }: Props) {
   return <canvas ref={canvasRef} className="preview-canvas" aria-label="3D preview" />;
 }
 
-function rebuildModel(group: THREE.Group, config: CharacterConfig) {
+function rebuildModel(group: THREE.Group, config: CharacterConfig, modelAssets: ModelAsset[], isCurrent: () => boolean) {
   while (group.children.length) {
     const child = group.children.pop();
     if (child) {
@@ -218,6 +228,8 @@ function rebuildModel(group: THREE.Group, config: CharacterConfig) {
       group.add(stone);
     }
   }
+
+  addAssemblyPlacements(group, config, modelAssets, bodyHeight, isCurrent);
 }
 
 function createLimb(material: THREE.Material, radius: number, height: number) {
@@ -264,6 +276,158 @@ function createWeapon(kind: string, metal: THREE.Material, grip: THREE.Material)
   }
 
   return weapon;
+}
+
+function addAssemblyPlacements(
+  group: THREE.Group,
+  config: CharacterConfig,
+  modelAssets: ModelAsset[],
+  bodyHeight: number,
+  isCurrent: () => boolean,
+) {
+  const assetsByID = new Map(modelAssets.map((asset) => [asset.id, asset]));
+  for (const placement of config.assembly.placements) {
+    const asset = assetsByID.get(placement.asset_id);
+    const socket = new THREE.Group();
+    applyPlacementTransform(socket, placement, bodyHeight, config.pose);
+    group.add(socket);
+
+    const placeholder = createUploadedPlaceholder(asset?.format ?? "missing");
+    socket.add(placeholder);
+
+    if (!asset || asset.format === "3mf") {
+      continue;
+    }
+
+    void loadUploadedModel(asset)
+      .then((object) => {
+        if (!isCurrent()) {
+          disposeObject(object);
+          return;
+        }
+        socket.remove(placeholder);
+        disposeObject(placeholder);
+        socket.add(object);
+      })
+      .catch(() => {
+        placeholder.traverse((child) => {
+          if (child instanceof THREE.Mesh && child.material instanceof THREE.MeshStandardMaterial) {
+            child.material.color.set(0xff6b6b);
+          }
+        });
+      });
+  }
+}
+
+function applyPlacementTransform(socket: THREE.Group, placement: AssemblyPlacement, bodyHeight: number, pose: string) {
+  const base = attachmentBaseTransform(placement.attachment_point, bodyHeight, pose);
+  const offset = tupleToVector3(placement.transform.position);
+  socket.position.copy(base.position.add(offset));
+  socket.rotation.set(
+    base.rotation.x + THREE.MathUtils.degToRad(placement.transform.rotation[0]),
+    base.rotation.y + THREE.MathUtils.degToRad(placement.transform.rotation[1]),
+    base.rotation.z + THREE.MathUtils.degToRad(placement.transform.rotation[2]),
+  );
+  socket.scale.setScalar(placement.transform.scale);
+}
+
+function attachmentBaseTransform(point: string, bodyHeight: number, pose: string) {
+  const guardTilt = pose.includes("guard") ? 0.45 : 0;
+  switch (point) {
+    case "body_core":
+      return { position: new THREE.Vector3(0, 0.96, 0), rotation: new THREE.Euler(0, 0, 0) };
+    case "head_mount":
+      return { position: new THREE.Vector3(0, bodyHeight + 1.02, 0), rotation: new THREE.Euler(0, 0, 0) };
+    case "torso_mount":
+      return { position: new THREE.Vector3(0, 1.18, 0.24), rotation: new THREE.Euler(0, 0, 0) };
+    case "back_mount":
+      return { position: new THREE.Vector3(0, 1.16, -0.38), rotation: new THREE.Euler(0.1, Math.PI, 0) };
+    case "left_hand":
+      return { position: new THREE.Vector3(-0.78, 1.08, 0.04), rotation: new THREE.Euler(0.12, 0, 0.2 + guardTilt) };
+    case "right_hand":
+      return { position: new THREE.Vector3(0.78, 1.08, 0.04), rotation: new THREE.Euler(0.12, 0, -0.2 - guardTilt) };
+    case "stage_anchor":
+      return { position: new THREE.Vector3(0, 0.2, 0.62), rotation: new THREE.Euler(0, 0, 0) };
+    case "base_mount":
+      return { position: new THREE.Vector3(0, 0.22, 0), rotation: new THREE.Euler(0, 0, 0) };
+    default:
+      return { position: new THREE.Vector3(0, 1, 0), rotation: new THREE.Euler(0, 0, 0) };
+  }
+}
+
+function createUploadedPlaceholder(format: string) {
+  const material = new THREE.MeshStandardMaterial({
+    color: format === "missing" ? 0xff6b6b : 0x6dc7ff,
+    roughness: 0.42,
+    metalness: 0.18,
+    transparent: true,
+    opacity: 0.78,
+  });
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.42), material);
+  body.castShadow = true;
+  group.add(body);
+
+  const wire = new THREE.Mesh(
+    new THREE.BoxGeometry(0.45, 0.45, 0.45),
+    new THREE.MeshBasicMaterial({ color: 0xf2b84b, wireframe: true }),
+  );
+  group.add(wire);
+  return group;
+}
+
+async function loadUploadedModel(asset: ModelAsset): Promise<THREE.Object3D> {
+  const url = assetFileURL(asset);
+  if (asset.format === "glb" || asset.format === "gltf") {
+    const gltf = await new GLTFLoader().loadAsync(url);
+    return normalizeUploadedObject(gltf.scene);
+  }
+  if (asset.format === "obj") {
+    const object = await new OBJLoader().loadAsync(url);
+    return normalizeUploadedObject(object);
+  }
+  if (asset.format === "stl") {
+    const geometry = await new STLLoader().loadAsync(url);
+    const mesh = new THREE.Mesh(
+      geometry,
+      new THREE.MeshStandardMaterial({ color: 0xd8dee9, roughness: 0.36, metalness: 0.45 }),
+    );
+    mesh.castShadow = true;
+    return normalizeUploadedObject(mesh);
+  }
+  return createUploadedPlaceholder(asset.format);
+}
+
+function normalizeUploadedObject(object: THREE.Object3D) {
+  object.traverse((child) => {
+    if (child instanceof THREE.Mesh) {
+      child.castShadow = true;
+      child.receiveShadow = true;
+      if (!child.material) {
+        child.material = new THREE.MeshStandardMaterial({ color: 0xd8dee9, roughness: 0.5 });
+      }
+    }
+  });
+
+  const box = new THREE.Box3().setFromObject(object);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+  const maxAxis = Math.max(size.x, size.y, size.z) || 1;
+  object.position.sub(center);
+  object.scale.multiplyScalar(0.55 / maxAxis);
+
+  const wrapper = new THREE.Group();
+  wrapper.add(object);
+  return wrapper;
+}
+
+function tupleToVector3(value: Vector3Tuple) {
+  return new THREE.Vector3(value[0], value[1], value[2]);
+}
+
+function bumpRebuildToken(ref: { current: number }) {
+  ref.current += 1;
+  return ref.current;
 }
 
 function disposeObject(object: THREE.Object3D) {

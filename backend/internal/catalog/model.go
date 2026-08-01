@@ -64,8 +64,36 @@ type CharacterConfig struct {
 	Scale         ScaleConfig       `json:"scale"`
 	ProductTarget string            `json:"product_target"`
 	Colors        map[string]string `json:"colors"`
+	Assembly      AssemblyConfig    `json:"assembly"`
 }
 
 type ScaleConfig struct {
 	MM int `json:"mm"`
+}
+
+type AssemblyConfig struct {
+	Placements []AssemblyPlacement `json:"placements"`
+}
+
+type AssemblyPlacement struct {
+	ID              string            `json:"id"`
+	Slot            string            `json:"slot"`
+	AttachmentPoint string            `json:"attachment_point"`
+	AssetID         string            `json:"asset_id"`
+	Transform       AssemblyTransform `json:"transform"`
+}
+
+type AssemblyTransform struct {
+	Position Vector3 `json:"position"`
+	Rotation Vector3 `json:"rotation"`
+	Scale    float64 `json:"scale"`
+}
+
+type Vector3 [3]float64
+
+type AssemblyPointTarget struct {
+	ID          string `json:"id"`
+	Slot        string `json:"slot"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
 }
