@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"strings"
 
 	_ "embed"
 )
@@ -316,6 +317,9 @@ func (s *Service) validateAssembly(assembly AssemblyConfig) error {
 		}
 		if !IsAssemblyPointTarget(placement.Slot, placement.AttachmentPoint) {
 			return fmt.Errorf("%w: assembly placement %q cannot use attachment point %q for slot %q", ErrInvalidConfig, placement.ID, placement.AttachmentPoint, placement.Slot)
+		}
+		if len(strings.TrimSpace(placement.AssetPointID)) > 80 {
+			return fmt.Errorf("%w: assembly placement %q asset_point_id is too long", ErrInvalidConfig, placement.ID)
 		}
 		if err := validateAssemblyTransform(placement.Transform); err != nil {
 			return fmt.Errorf("%w: assembly placement %q has invalid transform: %v", ErrInvalidConfig, placement.ID, err)

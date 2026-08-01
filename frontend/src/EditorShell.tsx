@@ -32,6 +32,7 @@ import type {
   EditorCategory,
   ExportJob,
   ModelAsset,
+  ModelAssetAssemblyPoint,
   Part,
   PrintReadiness,
   Project,
@@ -79,7 +80,7 @@ type EditorShellProps = {
   onScaleChange: (value: number) => void;
   onSlotChange: (slot: SlotID, partID: string) => void;
   onUpdateAssemblyPlacement: (id: string, patch: Partial<AssemblyPlacement>) => void;
-  onUploadAsset: (file: File, label: string, slot: SlotID, attachmentPoint: string) => void;
+  onUploadAsset: (file: File, label: string, slot: SlotID, attachmentPoint: string, assemblyPoints: ModelAssetAssemblyPoint[]) => void;
 };
 
 export default function EditorShell({
@@ -453,7 +454,7 @@ type AssetPanelProps = {
   modelAssets: ModelAsset[];
   onAddAssemblyPlacement: (asset: ModelAsset) => void;
   onDeleteModelAsset: (id: string) => void;
-  onUploadAsset: (file: File, label: string, slot: SlotID, attachmentPoint: string) => void;
+  onUploadAsset: (file: File, label: string, slot: SlotID, attachmentPoint: string, assemblyPoints: ModelAssetAssemblyPoint[]) => void;
 };
 
 function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssemblyPlacement, onDeleteModelAsset, onUploadAsset }: AssetPanelProps) {
@@ -462,6 +463,10 @@ function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssem
   const [label, setLabel] = useState("");
   const [slot, setSlot] = useState<SlotID>((slotOptions[0] ?? "gear") as SlotID);
   const [attachmentPoint, setAttachmentPoint] = useState("right_hand");
+  const [anchorID, setAnchorID] = useState("origin");
+  const [anchorLabel, setAnchorLabel] = useState("Origin anchor");
+  const [anchorPosition, setAnchorPosition] = useState<Vector3Tuple>([0, 0, 0]);
+  const [anchorRotation, setAnchorRotation] = useState<Vector3Tuple>([0, 0, 0]);
   const targetsForSlot = assemblyTargets.filter((target) => target.slot === slot);
   const selectedAttachmentPoint = targetsForSlot.some((target) => target.id === attachmentPoint)
     ? attachmentPoint
@@ -472,9 +477,21 @@ function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssem
     if (!file || !selectedAttachmentPoint) {
       return;
     }
-    onUploadAsset(file, label || stripExtension(file.name), slot, selectedAttachmentPoint);
+    const pointID = anchorID.trim() || "origin";
+    onUploadAsset(file, label || stripExtension(file.name), slot, selectedAttachmentPoint, [
+      {
+        id: pointID,
+        label: anchorLabel.trim() || pointID,
+        position: anchorPosition,
+        rotation: anchorRotation,
+      },
+    ]);
     setFile(null);
     setLabel("");
+    setAnchorID("origin");
+    setAnchorLabel("Origin anchor");
+    setAnchorPosition([0, 0, 0]);
+    setAnchorRotation([0, 0, 0]);
   }
 
   return (
@@ -528,6 +545,18 @@ function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssem
             ))}
           </select>
         </label>
+        <div className="anchor-editor">
+          <label className="field">
+            <span>Asset anchor ID</span>
+            <input value={anchorID} onChange={(event) => setAnchorID(event.target.value)} placeholder="origin" />
+          </label>
+          <label className="field">
+            <span>Asset anchor label</span>
+            <input value={anchorLabel} onChange={(event) => setAnchorLabel(event.target.value)} placeholder="Origin anchor" />
+          </label>
+          <VectorControl label="Anchor position" step={0.05} value={anchorPosition} onChange={setAnchorPosition} />
+          <VectorControl label="Anchor rotation" step={5} value={anchorRotation} onChange={setAnchorRotation} />
+        </div>
         <button className="wide-command primary-action" type="submit" disabled={!file || !selectedAttachmentPoint || isUploadingAsset}>
           <UploadCloud size={18} />
           {isUploadingAsset ? "Uploading..." : "Upload model"}
@@ -546,6 +575,7 @@ function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssem
               <span>{asset.slot} / {asset.attachment_point}</span>
               <span>{formatBytes(asset.size_bytes)}</span>
             </span>
+            <span className="part-card-assets">Anchors: {asset.assembly_points.map((point) => point.label || point.id).join(", ")}</span>
             <div className="asset-actions">
               <button className="wide-command" type="button" onClick={() => onAddAssemblyPlacement(asset)}>
                 <Boxes size={16} />
@@ -605,6 +635,10 @@ function AssemblyPanel({
         {config.assembly.placements.map((placement) => {
           const asset = assetsByID.get(placement.asset_id);
           const targets = assemblyTargets.filter((target) => target.slot === placement.slot);
+          const assetPoints = asset?.assembly_points ?? [];
+          const selectedAssetPointID = assetPoints.some((point) => point.id === placement.asset_point_id)
+            ? placement.asset_point_id
+            : assetPoints[0]?.id ?? "";
           return (
             <article className="placement-card" key={placement.id}>
               <div className="asset-title-row">
@@ -613,6 +647,20 @@ function AssemblyPanel({
                   <X size={15} />
                 </button>
               </div>
+              <label className="field">
+                <span>Asset anchor</span>
+                <select
+                  value={selectedAssetPointID}
+                  onChange={(event) => onUpdateAssemblyPlacement(placement.id, { asset_point_id: event.target.value })}
+                  disabled={assetPoints.length === 0}
+                >
+                  {assetPoints.map((point) => (
+                    <option key={point.id} value={point.id}>
+                      {point.label || point.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="field">
                 <span>Attachment point</span>
                 <select

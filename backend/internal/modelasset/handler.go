@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"mime"
 	"net/http"
 	"os"
@@ -310,15 +311,43 @@ func decodeAssemblyPoints(raw string, fallbackPoint string) ([]AssemblyPoint, er
 	if len(points) > 16 {
 		return nil, errors.New("assembly_points cannot exceed 16 items")
 	}
+	seen := make(map[string]struct{}, len(points))
 	for index, point := range points {
-		if strings.TrimSpace(point.ID) == "" {
+		point.ID = strings.TrimSpace(point.ID)
+		point.Label = strings.TrimSpace(point.Label)
+		if point.ID == "" {
 			return nil, fmt.Errorf("assembly_points[%d].id is required", index)
 		}
-		if strings.TrimSpace(point.Label) == "" {
-			points[index].Label = point.ID
+		if len(point.ID) > 80 {
+			return nil, fmt.Errorf("assembly_points[%d].id is too long", index)
 		}
+		if _, ok := seen[point.ID]; ok {
+			return nil, fmt.Errorf("duplicate assembly point %q", point.ID)
+		}
+		seen[point.ID] = struct{}{}
+		if point.Label == "" {
+			points[index].Label = point.ID
+		} else {
+			points[index].Label = point.Label
+		}
+		if err := validateAssemblyPointVector(point.Position, -20, 20); err != nil {
+			return nil, fmt.Errorf("assembly_points[%d].position %v", index, err)
+		}
+		if err := validateAssemblyPointVector(point.Rotation, -360, 360); err != nil {
+			return nil, fmt.Errorf("assembly_points[%d].rotation %v", index, err)
+		}
+		points[index].ID = point.ID
 	}
 	return points, nil
+}
+
+func validateAssemblyPointVector(vector Vector3, min float64, max float64) error {
+	for _, value := range vector {
+		if math.IsNaN(value) || math.IsInf(value, 0) || value < min || value > max {
+			return fmt.Errorf("values must be finite and between %.0f and %.0f", min, max)
+		}
+	}
+	return nil
 }
 
 func formatForFileName(fileName string) (string, bool) {

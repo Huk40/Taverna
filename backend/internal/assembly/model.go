@@ -22,6 +22,8 @@ type ResolvedPlacement struct {
 	ID              string                     `json:"id"`
 	Slot            string                     `json:"slot"`
 	AttachmentPoint string                     `json:"attachment_point"`
+	AssetPointID    string                     `json:"asset_point_id"`
+	AssetPoint      modelasset.AssemblyPoint   `json:"asset_point"`
 	Asset           ModelAssetRef              `json:"asset"`
 	AssetPoints     []modelasset.AssemblyPoint `json:"asset_points"`
 	SocketTransform Transform                  `json:"socket_transform"`

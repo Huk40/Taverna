@@ -5,7 +5,7 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { assetFileURL } from "./api";
-import type { AssemblyPlacement, CharacterConfig, ModelAsset, Vector3Tuple } from "./types";
+import type { AssemblyPlacement, CharacterConfig, ModelAsset, ModelAssetAssemblyPoint, Vector3Tuple } from "./types";
 
 type Props = {
   config: CharacterConfig;
@@ -289,7 +289,7 @@ function addAssemblyPlacements(
   for (const placement of config.assembly.placements) {
     const asset = assetsByID.get(placement.asset_id);
     const socket = new THREE.Group();
-    applyPlacementTransform(socket, placement, bodyHeight, config.pose);
+    applyPlacementTransform(socket, placement, asset, bodyHeight, config.pose);
     group.add(socket);
 
     const placeholder = createUploadedPlaceholder(asset?.format ?? "missing");
@@ -319,16 +319,31 @@ function addAssemblyPlacements(
   }
 }
 
-function applyPlacementTransform(socket: THREE.Group, placement: AssemblyPlacement, bodyHeight: number, pose: string) {
+function applyPlacementTransform(socket: THREE.Group, placement: AssemblyPlacement, asset: ModelAsset | undefined, bodyHeight: number, pose: string) {
   const base = attachmentBaseTransform(placement.attachment_point, bodyHeight, pose);
   const offset = tupleToVector3(placement.transform.position);
-  socket.position.copy(base.position.add(offset));
+  const assetPoint = selectedAssetPoint(asset, placement.asset_point_id);
   socket.rotation.set(
-    base.rotation.x + THREE.MathUtils.degToRad(placement.transform.rotation[0]),
-    base.rotation.y + THREE.MathUtils.degToRad(placement.transform.rotation[1]),
-    base.rotation.z + THREE.MathUtils.degToRad(placement.transform.rotation[2]),
+    base.rotation.x + THREE.MathUtils.degToRad(placement.transform.rotation[0] - assetPoint.rotation[0]),
+    base.rotation.y + THREE.MathUtils.degToRad(placement.transform.rotation[1] - assetPoint.rotation[1]),
+    base.rotation.z + THREE.MathUtils.degToRad(placement.transform.rotation[2] - assetPoint.rotation[2]),
   );
   socket.scale.setScalar(placement.transform.scale);
+  const anchorOffset = tupleToVector3(assetPoint.position).multiplyScalar(placement.transform.scale).applyEuler(socket.rotation);
+  socket.position.copy(base.position.add(offset).sub(anchorOffset));
+}
+
+function selectedAssetPoint(asset: ModelAsset | undefined, requestedID: string): ModelAssetAssemblyPoint {
+  const fallback: ModelAssetAssemblyPoint = {
+    id: "origin",
+    label: "Origin",
+    position: [0, 0, 0],
+    rotation: [0, 0, 0],
+  };
+  if (!asset?.assembly_points.length) {
+    return fallback;
+  }
+  return asset.assembly_points.find((point) => point.id === requestedID) ?? asset.assembly_points[0] ?? fallback;
 }
 
 function attachmentBaseTransform(point: string, bodyHeight: number, pose: string) {

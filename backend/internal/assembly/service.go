@@ -69,9 +69,14 @@ func (s *Service) Manifest(ctx context.Context, projectID string) (Manifest, err
 			return Manifest{}, fmt.Errorf("%w: asset %q belongs to slot %q, placement uses slot %q", ErrInvalidAssembly, asset.ID, asset.Slot, placement.Slot)
 		}
 
+		assetPoint, err := resolveAssetPoint(asset, placement.AssetPointID)
+		if err != nil {
+			return Manifest{}, err
+		}
+
 		socket := socketTransform(placement.AttachmentPoint, bodyHeight, config.Pose)
 		user := userTransform(placement.Transform)
-		world := composeWorldTransform(socket, user, characterScale)
+		world := composeWorldTransform(socket, user, assetPoint, characterScale)
 		if asset.Format == modelasset.Format3MF {
 			manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("asset %s is 3MF and currently resolves as a manifest-only placement", asset.ID))
 		}
@@ -80,6 +85,8 @@ func (s *Service) Manifest(ctx context.Context, projectID string) (Manifest, err
 			ID:              placement.ID,
 			Slot:            placement.Slot,
 			AttachmentPoint: placement.AttachmentPoint,
+			AssetPointID:    assetPoint.ID,
+			AssetPoint:      assetPoint,
 			Asset:           assetRef(asset),
 			AssetPoints:     asset.AssemblyPoints,
 			SocketTransform: socket,
@@ -102,6 +109,29 @@ func assetRef(asset modelasset.ModelAsset) ModelAssetRef {
 		URL:         asset.URL,
 		StoragePath: asset.StoragePath,
 	}
+}
+
+func resolveAssetPoint(asset modelasset.ModelAsset, requestedID string) (modelasset.AssemblyPoint, error) {
+	requestedID = strings.TrimSpace(requestedID)
+	if requestedID == "" {
+		if len(asset.AssemblyPoints) > 0 {
+			return asset.AssemblyPoints[0], nil
+		}
+		return modelasset.AssemblyPoint{
+			ID:       asset.AttachmentPoint,
+			Label:    asset.AttachmentPoint,
+			Position: modelasset.Vector3{0, 0, 0},
+			Rotation: modelasset.Vector3{0, 0, 0},
+		}, nil
+	}
+
+	for _, point := range asset.AssemblyPoints {
+		if point.ID == requestedID {
+			return point, nil
+		}
+	}
+
+	return modelasset.AssemblyPoint{}, fmt.Errorf("%w: asset %q does not expose assembly point %q", ErrInvalidAssembly, asset.ID, requestedID)
 }
 
 func selectionsFor(config catalog.CharacterConfig) map[string]string {
@@ -169,20 +199,67 @@ func userTransform(transform catalog.AssemblyTransform) Transform {
 	}
 }
 
-func composeWorldTransform(socket Transform, user Transform, characterScale float64) Transform {
+func composeWorldTransform(socket Transform, user Transform, assetPoint modelasset.AssemblyPoint, characterScale float64) Transform {
+	scale := socket.Scale * user.Scale * characterScale
+	rotation := [3]float64{
+		round(socket.Rotation[0] + user.Rotation[0] - assetPoint.Rotation[0]),
+		round(socket.Rotation[1] + user.Rotation[1] - assetPoint.Rotation[1]),
+		round(socket.Rotation[2] + user.Rotation[2] - assetPoint.Rotation[2]),
+	}
+	target := [3]float64{
+		(socket.Position[0] + user.Position[0]) * characterScale,
+		(socket.Position[1] + user.Position[1]) * characterScale,
+		(socket.Position[2] + user.Position[2]) * characterScale,
+	}
+	anchorOffset := rotateVector([3]float64{
+		assetPoint.Position[0] * scale,
+		assetPoint.Position[1] * scale,
+		assetPoint.Position[2] * scale,
+	}, rotation)
+
 	return Transform{
 		Position: [3]float64{
-			round((socket.Position[0] + user.Position[0]) * characterScale),
-			round((socket.Position[1] + user.Position[1]) * characterScale),
-			round((socket.Position[2] + user.Position[2]) * characterScale),
+			round(target[0] - anchorOffset[0]),
+			round(target[1] - anchorOffset[1]),
+			round(target[2] - anchorOffset[2]),
 		},
-		Rotation: [3]float64{
-			round(socket.Rotation[0] + user.Rotation[0]),
-			round(socket.Rotation[1] + user.Rotation[1]),
-			round(socket.Rotation[2] + user.Rotation[2]),
-		},
-		Scale: round(socket.Scale * user.Scale * characterScale),
+		Rotation: rotation,
+		Scale:    round(scale),
 	}
+}
+
+func rotateVector(vector [3]float64, rotation [3]float64) [3]float64 {
+	x := vector[0]
+	y := vector[1]
+	z := vector[2]
+
+	x, y, z = rotateX(x, y, z, degreesToRadians(rotation[0]))
+	x, y, z = rotateY(x, y, z, degreesToRadians(rotation[1]))
+	x, y, z = rotateZ(x, y, z, degreesToRadians(rotation[2]))
+
+	return [3]float64{x, y, z}
+}
+
+func rotateX(x float64, y float64, z float64, angle float64) (float64, float64, float64) {
+	cos := math.Cos(angle)
+	sin := math.Sin(angle)
+	return x, y*cos - z*sin, y*sin + z*cos
+}
+
+func rotateY(x float64, y float64, z float64, angle float64) (float64, float64, float64) {
+	cos := math.Cos(angle)
+	sin := math.Sin(angle)
+	return x*cos + z*sin, y, -x*sin + z*cos
+}
+
+func rotateZ(x float64, y float64, z float64, angle float64) (float64, float64, float64) {
+	cos := math.Cos(angle)
+	sin := math.Sin(angle)
+	return x*cos - y*sin, x*sin + y*cos, z
+}
+
+func degreesToRadians(value float64) float64 {
+	return value * math.Pi / 180
 }
 
 func clamp(value float64, min float64, max float64) float64 {

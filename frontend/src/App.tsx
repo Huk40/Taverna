@@ -24,6 +24,7 @@ import type {
   EditorCategory,
   ExportJob,
   ModelAsset,
+  ModelAssetAssemblyPoint,
   Part,
   PrintReadiness,
   Project,
@@ -148,7 +149,7 @@ export default function App() {
     }
   }
 
-  async function uploadAsset(file: File, label: string, slot: SlotID, attachmentPoint: string) {
+  async function uploadAsset(file: File, label: string, slot: SlotID, attachmentPoint: string, assemblyPoints?: ModelAssetAssemblyPoint[]) {
     setIsUploadingAsset(true);
     try {
       const asset = await uploadModelAsset({
@@ -156,6 +157,7 @@ export default function App() {
         label,
         slot,
         attachmentPoint,
+        assemblyPoints,
       });
       setModelAssets((current) => [asset, ...current.filter((item) => item.id !== asset.id)]);
       setActiveCategory("assembly");
@@ -318,6 +320,7 @@ export default function App() {
       id: makeClientID("placement"),
       slot: asset.slot,
       attachment_point: asset.attachment_point,
+      asset_point_id: asset.assembly_points[0]?.id ?? asset.attachment_point,
       asset_id: asset.id,
       transform: {
         position: [0, 0, 0],
@@ -435,7 +438,7 @@ export default function App() {
       onScaleChange={updateScale}
       onSlotChange={updateSlot}
       onUpdateAssemblyPlacement={updateAssemblyPlacement}
-      onUploadAsset={(file, label, slot, attachmentPoint) => void uploadAsset(file, label, slot, attachmentPoint)}
+      onUploadAsset={(file, label, slot, attachmentPoint, assemblyPoints) => void uploadAsset(file, label, slot, attachmentPoint, assemblyPoints)}
     />
   );
 }
@@ -537,6 +540,7 @@ function normalizePlacement(value: unknown, index: number): AssemblyPlacement | 
     id: asString(value.id) ?? `placement-${index + 1}`,
     slot: slot as SlotID,
     attachment_point: attachmentPoint,
+    asset_point_id: asString(value.asset_point_id) ?? "",
     asset_id: assetID,
     transform: {
       position: asVector3(transform.position, [0, 0, 0]),

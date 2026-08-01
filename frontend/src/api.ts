@@ -6,6 +6,7 @@ import type {
   CompatibilityRule,
   ExportJob,
   ModelAsset,
+  ModelAssetAssemblyPoint,
   Part,
   Project,
   Slot,
@@ -117,7 +118,7 @@ export function uploadModelAsset(payload: {
   label: string;
   slot: string;
   attachmentPoint: string;
-  assemblyPoints?: unknown;
+  assemblyPoints?: ModelAssetAssemblyPoint[];
 }): Promise<ModelAsset> {
   const formData = new FormData();
   formData.append("file", payload.file);

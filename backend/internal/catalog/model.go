@@ -79,6 +79,7 @@ type AssemblyPlacement struct {
 	ID              string            `json:"id"`
 	Slot            string            `json:"slot"`
 	AttachmentPoint string            `json:"attachment_point"`
+	AssetPointID    string            `json:"asset_point_id,omitempty"`
 	AssetID         string            `json:"asset_id"`
 	Transform       AssemblyTransform `json:"transform"`
 }

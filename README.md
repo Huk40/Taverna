@@ -120,12 +120,15 @@ Model asset endpoints:
 - `GET /api/model-assets`: список загруженных 3D-моделей.
 - `GET /api/model-assets?slot=gear`: модели одного slot.
 - `POST /api/model-assets`: multipart upload поля `file`, `label`, `slot`, `attachment_point`.
+- `assembly_points`: optional multipart field with JSON local anchors for the uploaded model, for example `[{"id":"grip","label":"Grip","position":[0,0,0],"rotation":[0,0,0]}]`.
 - `GET /api/model-assets/{id}`: получить metadata одной модели.
 - `GET /api/model-assets/{id}/file`: получить файл модели для Three.js preview.
 - `DELETE /api/model-assets/{id}`: удалить metadata и файл.
 - `GET /api/model-assets/assembly-points`: список поддержанных target points для сборки.
 
 Поддержанные форматы upload: `.glb`, `.gltf`, `.obj`, `.stl`, `.3mf`. Файлы хранятся локально в backend storage volume, metadata хранится в PostgreSQL таблице `model_assets`. Проект сохраняет ссылки на загруженные модели в `config.assembly.placements`, а backend проверяет, что referenced asset IDs существуют.
+
+`config.assembly.placements[].asset_point_id` selects the local anchor of the uploaded model. The server aligns that asset anchor to the character `attachment_point` and includes the resolved `asset_point` plus final `world_transform` in the assembly manifest.
 
 ## Assembly Manifest API
 
@@ -134,6 +137,7 @@ Model asset endpoints:
 - выбранные catalog slots проекта;
 - `scale_mm` и `character_scale`;
 - uploaded asset metadata и file URL;
+- selected `asset_point_id` and resolved local `asset_point`;
 - socket transform точки сборки;
 - пользовательский transform placement-а;
 - итоговый `world_transform`, который будущий mesh worker сможет использовать для сборки GLB/STL/3MF.
@@ -170,6 +174,7 @@ Export endpoints:
 - Backend catalog API.
 - Versioned `CharacterConfig` со `schema_version: 1`.
 - User model asset upload API с локальным server storage.
+- Upload UI for a primary local asset anchor, persisted as `assembly_points`.
 - Assembly placements по точкам сборки (`right_hand`, `left_hand`, `head_mount`, `back_mount`, `base_mount`, `stage_anchor`).
 - Server-side assembly manifest API для будущего mesh worker.
 - MVP OBJ/STL artifact builder: собирает uploaded OBJ placements в downloadable `.obj`, а uploaded STL и triangulated OBJ placements - в downloadable ASCII `.stl`.

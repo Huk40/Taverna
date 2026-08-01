@@ -37,6 +37,7 @@ export type AssemblyPlacement = {
   id: string;
   slot: SlotID;
   attachment_point: string;
+  asset_point_id: string;
   asset_id: string;
   transform: {
     position: Vector3Tuple;
@@ -168,6 +169,8 @@ export type ResolvedAssemblyPlacement = {
   id: string;
   slot: SlotID;
   attachment_point: string;
+  asset_point_id: string;
+  asset_point: ModelAssetAssemblyPoint;
   asset: {
     id: string;
     label: string;
