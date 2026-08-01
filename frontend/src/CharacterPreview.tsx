@@ -291,6 +291,7 @@ function addAssemblyPlacements(
     const socket = new THREE.Group();
     applyPlacementTransform(socket, placement, asset, bodyHeight, config.pose);
     group.add(socket);
+    addAssemblyGuides(group, socket, placement, asset, bodyHeight, config.pose);
 
     const placeholder = createUploadedPlaceholder(asset?.format ?? "missing");
     socket.add(placeholder);
@@ -317,6 +318,96 @@ function addAssemblyPlacements(
         });
       });
   }
+}
+
+function addAssemblyGuides(
+  group: THREE.Group,
+  socket: THREE.Group,
+  placement: AssemblyPlacement,
+  asset: ModelAsset | undefined,
+  bodyHeight: number,
+  pose: string,
+) {
+  const base = attachmentBaseTransform(placement.attachment_point, bodyHeight, pose);
+  const targetMarker = createSocketTargetMarker();
+  targetMarker.position.copy(base.position.clone().add(tupleToVector3(placement.transform.position)));
+  targetMarker.rotation.set(
+    base.rotation.x + THREE.MathUtils.degToRad(placement.transform.rotation[0]),
+    base.rotation.y + THREE.MathUtils.degToRad(placement.transform.rotation[1]),
+    base.rotation.z + THREE.MathUtils.degToRad(placement.transform.rotation[2]),
+  );
+  group.add(targetMarker);
+
+  const assetPoint = selectedAssetPoint(asset, placement.asset_point_id);
+  const markerScale = 1 / Math.max(Math.abs(placement.transform.scale), 0.05);
+  const anchorPosition = tupleToVector3(assetPoint.position);
+
+  const anchorMarker = createAssetAnchorMarker(markerScale);
+  anchorMarker.position.copy(anchorPosition);
+  anchorMarker.rotation.set(
+    THREE.MathUtils.degToRad(assetPoint.rotation[0]),
+    THREE.MathUtils.degToRad(assetPoint.rotation[1]),
+    THREE.MathUtils.degToRad(assetPoint.rotation[2]),
+  );
+  socket.add(anchorMarker);
+
+  const originMarker = createAssetOriginMarker(markerScale);
+  socket.add(originMarker);
+
+  const connector = createAnchorConnector(anchorPosition, markerScale);
+  if (connector) {
+    socket.add(connector);
+  }
+}
+
+function createSocketTargetMarker() {
+  const marker = new THREE.Group();
+  const material = new THREE.MeshBasicMaterial({ color: 0xf2b84b, transparent: true, opacity: 0.9 });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.005, 8, 32), material);
+  ring.rotation.x = Math.PI / 2;
+  marker.add(ring);
+
+  const dot = new THREE.Mesh(new THREE.SphereGeometry(0.025, 12, 8), material);
+  marker.add(dot);
+  return marker;
+}
+
+function createAssetAnchorMarker(scale: number) {
+  const marker = new THREE.Group();
+  marker.scale.setScalar(scale);
+
+  const material = new THREE.MeshBasicMaterial({ color: 0x6dc7ff, transparent: true, opacity: 0.9 });
+  const core = new THREE.Mesh(new THREE.IcosahedronGeometry(0.055, 1), material);
+  marker.add(core);
+
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.004, 8, 28), material);
+  ring.rotation.y = Math.PI / 2;
+  marker.add(ring);
+  return marker;
+}
+
+function createAssetOriginMarker(scale: number) {
+  const marker = new THREE.Mesh(
+    new THREE.SphereGeometry(0.036 * scale, 12, 8),
+    new THREE.MeshBasicMaterial({ color: 0x7ce2aa, transparent: true, opacity: 0.72 }),
+  );
+  return marker;
+}
+
+function createAnchorConnector(anchorPosition: THREE.Vector3, markerScale: number) {
+  const distance = anchorPosition.length();
+  if (distance < 0.001) {
+    return null;
+  }
+
+  const material = new THREE.MeshBasicMaterial({ color: 0x7ce2aa, transparent: true, opacity: 0.6 });
+  const connector = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.006 * markerScale, 0.006 * markerScale, distance, 8),
+    material,
+  );
+  connector.position.copy(anchorPosition.clone().multiplyScalar(0.5));
+  connector.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), anchorPosition.clone().normalize());
+  return connector;
 }
 
 function applyPlacementTransform(socket: THREE.Group, placement: AssemblyPlacement, asset: ModelAsset | undefined, bodyHeight: number, pose: string) {
