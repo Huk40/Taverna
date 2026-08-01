@@ -14,6 +14,18 @@ import type {
 
 const API_URL = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
 
+export class APIError extends Error {
+  readonly status: number;
+  readonly payload: unknown;
+
+  constructor(status: number, message: string, payload: unknown) {
+    super(message);
+    this.name = "APIError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
+
 type ProjectPayload = {
   name: string;
   config: CharacterConfig;
@@ -33,8 +45,10 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed with status ${response.status}`);
+    const text = await response.text();
+    const payload = parseErrorPayload(text);
+    const message = errorMessageFromPayload(payload) ?? (text.trim() || `Request failed with status ${response.status}`);
+    throw new APIError(response.status, message, payload);
   }
 
   if (response.status === 204) {
@@ -42,6 +56,25 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   return response.json() as Promise<T>;
+}
+
+function parseErrorPayload(text: string): unknown {
+  if (!text.trim()) {
+    return null;
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function errorMessageFromPayload(payload: unknown): string | null {
+  if (typeof payload !== "object" || payload === null || !("error" in payload)) {
+    return null;
+  }
+  const message = (payload as { error?: unknown }).error;
+  return typeof message === "string" && message.trim() ? message : null;
 }
 
 export function listProjects(): Promise<Project[]> {

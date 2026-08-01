@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import CharacterPreview from "./CharacterPreview";
-import { exportArtifactURL } from "./api";
+import { APIError, exportArtifactURL } from "./api";
 import type {
   AssemblyPlacement,
   AssemblyManifest,
@@ -491,6 +491,7 @@ function AssetPanel({
   const [editingAssetID, setEditingAssetID] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState("");
   const [editAnchors, setEditAnchors] = useState<ModelAssetAssemblyPoint[]>(() => [defaultUploadAnchor(1)]);
+  const [assetEditNotice, setAssetEditNotice] = useState<AssetEditNotice | null>(null);
   const targetsForSlot = assemblyTargets.filter((target) => target.slot === slot);
   const selectedAttachmentPoint = targetsForSlot.some((target) => target.id === attachmentPoint)
     ? attachmentPoint
@@ -511,20 +512,22 @@ function AssetPanel({
     setEditingAssetID(asset.id);
     setEditLabel(asset.label);
     setEditAnchors(asset.assembly_points.length ? cloneAnchors(asset.assembly_points) : [defaultUploadAnchor(1)]);
+    setAssetEditNotice(null);
   }
 
   function cancelEditingAsset() {
     setEditingAssetID(null);
     setEditLabel("");
     setEditAnchors([defaultUploadAnchor(1)]);
+    setAssetEditNotice(null);
   }
 
   async function saveEditingAsset(asset: ModelAsset) {
     try {
       await onUpdateModelAsset(asset.id, editLabel || asset.label, normalizeUploadAnchors(editAnchors));
       cancelEditingAsset();
-    } catch {
-      // App-level status already reports the backend validation error.
+    } catch (error) {
+      setAssetEditNotice(assetEditNoticeForError(asset.id, error));
     }
   }
 
@@ -604,9 +607,25 @@ function AssetPanel({
               <div className="asset-edit-panel">
                 <label className="field">
                   <span>Label</span>
-                  <input value={editLabel} onChange={(event) => setEditLabel(event.target.value)} placeholder={asset.label} />
+                  <input
+                    value={editLabel}
+                    onChange={(event) => {
+                      setEditLabel(event.target.value);
+                      setAssetEditNotice(null);
+                    }}
+                    placeholder={asset.label}
+                  />
                 </label>
-                <AssetAnchorEditor anchors={editAnchors} metadata={asset.metadata} title="Asset anchors" onChange={setEditAnchors} />
+                <AssetAnchorEditor
+                  anchors={editAnchors}
+                  metadata={asset.metadata}
+                  title="Asset anchors"
+                  onChange={(nextAnchors) => {
+                    setEditAnchors(nextAnchors);
+                    setAssetEditNotice(null);
+                  }}
+                />
+                {assetEditNotice?.assetID === asset.id && <AssetEditNoticePanel notice={assetEditNotice} />}
                 <div className="asset-actions">
                   <button className="wide-command primary-action" type="button" onClick={() => void saveEditingAsset(asset)} disabled={isUpdatingAsset}>
                     <Save size={16} />
@@ -636,6 +655,48 @@ function AssetPanel({
         ))}
         {modelAssets.length === 0 && <p className="empty-state">Upload a model to start assembling custom parts</p>}
       </div>
+    </div>
+  );
+}
+
+type AssetEditNotice = {
+  assetID: string;
+  title: string;
+  detail: string;
+  references: AssetAnchorConflictReference[];
+};
+
+type AssetAnchorConflictReference = {
+  projectID: string;
+  projectName: string;
+  placementID: string;
+  assetPointID: string;
+};
+
+type AssetEditNoticePanelProps = {
+  notice: AssetEditNotice;
+};
+
+function AssetEditNoticePanel({ notice }: AssetEditNoticePanelProps) {
+  return (
+    <div className="asset-edit-notice" role="alert">
+      <div className="readiness-heading">
+        <strong>{notice.title}</strong>
+        <span className="readiness-warning">Blocked</span>
+      </div>
+      <small>{notice.detail}</small>
+      {notice.references.length > 0 && (
+        <ul className="asset-edit-reference-list">
+          {notice.references.map((reference) => (
+            <li className="asset-edit-reference" key={`${reference.projectID}-${reference.placementID}-${reference.assetPointID}`}>
+              <span>{reference.projectName}</span>
+              <code>
+                {reference.placementID} / {reference.assetPointID}
+              </code>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -1343,6 +1404,51 @@ function normalizeUploadAnchors(anchors: ModelAssetAssemblyPoint[]): ModelAssetA
 
 function sanitizeVector(value: Vector3Tuple): Vector3Tuple {
   return value.map((item) => (Number.isFinite(item) ? item : 0)) as Vector3Tuple;
+}
+
+function assetEditNoticeForError(assetID: string, error: unknown): AssetEditNotice {
+  const references = assetAnchorConflictReferences(error);
+  if (error instanceof APIError && error.status === 409) {
+    return {
+      assetID,
+      title: "Anchor edit blocked",
+      detail: references.length
+        ? "A saved project still uses an anchor ID you removed or renamed."
+        : error.message,
+      references,
+    };
+  }
+
+  return {
+    assetID,
+    title: "Asset update failed",
+    detail: error instanceof Error ? error.message : "Unknown asset update error",
+    references: [],
+  };
+}
+
+function assetAnchorConflictReferences(error: unknown): AssetAnchorConflictReference[] {
+  if (!(error instanceof APIError) || error.status !== 409 || !isRecord(error.payload)) {
+    return [];
+  }
+
+  const references = Array.isArray(error.payload.references) ? error.payload.references : [];
+  return references
+    .filter(isRecord)
+    .map((reference) => ({
+      projectID: textValue(reference.project_id, "unknown-project"),
+      projectName: textValue(reference.project_name, "Saved project"),
+      placementID: textValue(reference.placement_id, "unknown-placement"),
+      assetPointID: textValue(reference.asset_point_id, "unknown-anchor"),
+    }));
+}
+
+function textValue(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function formatBytes(value: number): string {

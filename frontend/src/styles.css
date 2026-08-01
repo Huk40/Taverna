@@ -607,6 +607,52 @@ input[type="color"] {
   min-width: 0;
 }
 
+.asset-edit-notice {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(242, 184, 75, 0.42);
+  border-radius: 8px;
+  background: rgba(242, 184, 75, 0.08);
+}
+
+.asset-edit-notice small {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.asset-edit-reference-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.asset-edit-reference {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #10161d;
+}
+
+.asset-edit-reference span {
+  color: #f4f7fb;
+  font-size: 0.78rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.asset-edit-reference code {
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+}
+
 .file-drop {
   position: relative;
   display: grid;
