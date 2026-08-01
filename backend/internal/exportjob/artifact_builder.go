@@ -2,7 +2,9 @@ package exportjob
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"path/filepath"
@@ -299,10 +301,21 @@ func appendSTLPlacement(writer *bufio.Writer, placement assembly.ResolvedPlaceme
 	case modelasset.FormatOBJ:
 		return appendOBJAsSTL(writer, placement)
 	case modelasset.FormatSTL:
-		return appendASCIISTLPlacement(writer, placement)
+		return appendSTLFilePlacement(writer, placement)
 	default:
 		return 0, fmt.Errorf("asset %s has unsupported STL assembly format %s", placement.Asset.ID, placement.Asset.Format)
 	}
+}
+
+func appendSTLFilePlacement(writer *bufio.Writer, placement assembly.ResolvedPlacement) (int, error) {
+	triangleCount, isBinary, err := binarySTLTriangleCount(placement.Asset.StoragePath)
+	if err != nil {
+		return 0, fmt.Errorf("inspect asset %s STL: %w", placement.Asset.ID, err)
+	}
+	if isBinary {
+		return appendBinarySTLPlacement(writer, placement, triangleCount)
+	}
+	return appendASCIISTLPlacement(writer, placement)
 }
 
 func appendOBJAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) (int, error) {
@@ -408,6 +421,65 @@ func appendASCIISTLPlacement(writer *bufio.Writer, placement assembly.ResolvedPl
 	return triangleCount, nil
 }
 
+func appendBinarySTLPlacement(writer *bufio.Writer, placement assembly.ResolvedPlacement, triangleTotal uint32) (int, error) {
+	source, err := os.Open(placement.Asset.StoragePath)
+	if err != nil {
+		return 0, fmt.Errorf("read asset %s: %w", placement.Asset.ID, err)
+	}
+	defer source.Close()
+
+	if _, err := source.Seek(84, io.SeekStart); err != nil {
+		return 0, fmt.Errorf("seek asset %s binary STL: %w", placement.Asset.ID, err)
+	}
+
+	triangleCount := 0
+	for index := uint32(0); index < triangleTotal; index++ {
+		var values [12]float32
+		if err := binary.Read(source, binary.LittleEndian, &values); err != nil {
+			return triangleCount, fmt.Errorf("read asset %s binary STL triangle %d: %w", placement.Asset.ID, index, err)
+		}
+
+		a := applyTransform(float32Vector(values[3], values[4], values[5]), placement.WorldTransform, true)
+		b := applyTransform(float32Vector(values[6], values[7], values[8]), placement.WorldTransform, true)
+		c := applyTransform(float32Vector(values[9], values[10], values[11]), placement.WorldTransform, true)
+		if err := writeSTLFacet(writer, a, b, c); err != nil {
+			return triangleCount, err
+		}
+
+		var attribute uint16
+		if err := binary.Read(source, binary.LittleEndian, &attribute); err != nil {
+			return triangleCount, fmt.Errorf("read asset %s binary STL attribute %d: %w", placement.Asset.ID, index, err)
+		}
+		triangleCount++
+	}
+
+	return triangleCount, nil
+}
+
+func binarySTLTriangleCount(path string) (uint32, bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return 0, false, err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return 0, false, err
+	}
+	if info.Size() < 84 {
+		return 0, false, nil
+	}
+
+	var header [84]byte
+	if _, err := io.ReadFull(file, header[:]); err != nil {
+		return 0, false, err
+	}
+	triangleCount := binary.LittleEndian.Uint32(header[80:84])
+	expectedSize := int64(84) + int64(triangleCount)*50
+	return triangleCount, expectedSize == info.Size(), nil
+}
+
 func writeSTLFacet(writer *bufio.Writer, a [3]float64, b [3]float64, c [3]float64) error {
 	normal := triangleNormal(a, b, c)
 	if _, err := fmt.Fprintf(writer, "  facet normal %.6f %.6f %.6f\n", normal[0], normal[1], normal[2]); err != nil {
@@ -432,6 +504,10 @@ func writeSTLFacet(writer *bufio.Writer, a [3]float64, b [3]float64, c [3]float6
 		return err
 	}
 	return nil
+}
+
+func float32Vector(x float32, y float32, z float32) [3]float64 {
+	return [3]float64{float64(x), float64(y), float64(z)}
 }
 
 func parseVector(values []string) ([3]float64, error) {

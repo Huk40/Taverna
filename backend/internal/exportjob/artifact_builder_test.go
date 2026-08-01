@@ -1,6 +1,8 @@
 package exportjob
 
 import (
+	"bytes"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,6 +180,56 @@ endsolid blade
 	}
 }
 
+func TestArtifactBuilderAssemblesBinarySTLPlacement(t *testing.T) {
+	sourceDir := t.TempDir()
+	sourcePath := filepath.Join(sourceDir, "blade-binary.stl")
+	writeBinarySTL(t, sourcePath, [][3][3]float32{
+		{
+			{0, 0, 0},
+			{0, 1, 0},
+			{0, 0, 1},
+		},
+	})
+
+	builder := NewArtifactBuilder(t.TempDir())
+	result, err := builder.Build("job-1", assembly.Manifest{
+		ProjectID: "project-1",
+		Placements: []assembly.ResolvedPlacement{{
+			ID: "placement-1",
+			Asset: assembly.ModelAssetRef{
+				ID:          "asset-1",
+				Label:       "Blade",
+				FileName:    "blade-binary.stl",
+				Format:      modelasset.FormatSTL,
+				StoragePath: sourcePath,
+			},
+			WorldTransform: assembly.Transform{
+				Position: [3]float64{0.5, -1, 2},
+				Rotation: [3]float64{0, 0, 0},
+				Scale:    2,
+			},
+		}},
+	}, "stl")
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if len(result.IncludedAssets) != 1 || result.IncludedAssets[0] != "asset-1" {
+		t.Fatalf("included assets = %v", result.IncludedAssets)
+	}
+
+	raw, err := os.ReadFile(result.StoragePath)
+	if err != nil {
+		t.Fatalf("read assembled STL: %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "vertex 0.500000 -1.000000 2.000000") {
+		t.Fatalf("assembled STL missing transformed binary origin vertex:\n%s", text)
+	}
+	if !strings.Contains(text, "vertex 0.500000 1.000000 2.000000") {
+		t.Fatalf("assembled STL missing transformed binary y vertex:\n%s", text)
+	}
+}
+
 func TestArtifactBuilderSkipsNonOBJAssets(t *testing.T) {
 	builder := NewArtifactBuilder(t.TempDir())
 	result, err := builder.Build("job-1", assembly.Manifest{
@@ -198,5 +250,37 @@ func TestArtifactBuilderSkipsNonOBJAssets(t *testing.T) {
 	}
 	if len(result.SkippedAssets) != 1 || result.SkippedAssets[0] != "asset-1" {
 		t.Fatalf("skipped assets = %v", result.SkippedAssets)
+	}
+}
+
+func writeBinarySTL(t *testing.T, path string, triangles [][3][3]float32) {
+	t.Helper()
+
+	var buffer bytes.Buffer
+	header := make([]byte, 80)
+	copy(header, "Taverna binary STL test")
+	if _, err := buffer.Write(header); err != nil {
+		t.Fatalf("write binary STL header: %v", err)
+	}
+	if err := binary.Write(&buffer, binary.LittleEndian, uint32(len(triangles))); err != nil {
+		t.Fatalf("write binary STL triangle count: %v", err)
+	}
+	for _, triangle := range triangles {
+		values := [12]float32{
+			0, 0, 1,
+			triangle[0][0], triangle[0][1], triangle[0][2],
+			triangle[1][0], triangle[1][1], triangle[1][2],
+			triangle[2][0], triangle[2][1], triangle[2][2],
+		}
+		if err := binary.Write(&buffer, binary.LittleEndian, values); err != nil {
+			t.Fatalf("write binary STL triangle: %v", err)
+		}
+		if err := binary.Write(&buffer, binary.LittleEndian, uint16(0)); err != nil {
+			t.Fatalf("write binary STL attribute: %v", err)
+		}
+	}
+
+	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
+		t.Fatalf("write binary STL: %v", err)
 	}
 }

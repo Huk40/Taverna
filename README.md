@@ -163,7 +163,7 @@ Export endpoints:
 
 На текущем этапе Redis, MinIO и отдельный mesh worker намеренно не подключены. API создает job, сразу завершает его metadata, включает краткий assembly summary и полный `assembly_manifest` по uploaded assets, затем сохраняет историю export jobs проекта, чтобы зафиксировать будущий контракт.
 
-Для первого физического artifact pipeline backend поддерживает `format: "obj"` и `format: "stl"`. OBJ export берет uploaded OBJ assets из assembly manifest, применяет рассчитанные `world_transform`, склеивает вершины/faces в один `.obj` и сохраняет файл в server storage. STL export создает ASCII `.stl`: uploaded STL перечитываются как facets, а простые OBJ placements триангулируются в STL facets с пересчитанными normals. Для `.glb` и `.3mf` пока возвращается manifest-only artifact с предупреждением; полноценная конвертация этих форматов остается задачей будущего worker-а.
+Для первого физического artifact pipeline backend поддерживает `format: "obj"` и `format: "stl"`. OBJ export берет uploaded OBJ assets из assembly manifest, применяет рассчитанные `world_transform`, склеивает вершины/faces в один `.obj` и сохраняет файл в server storage. STL export создает ASCII `.stl`: uploaded ASCII/binary STL перечитываются как facets, а простые OBJ placements триангулируются в STL facets с пересчитанными normals. Для `.glb` и `.3mf` пока возвращается manifest-only artifact с предупреждением; полноценная конвертация этих форматов остается задачей будущего worker-а.
 
 ## Share links
 
@@ -178,7 +178,7 @@ Export endpoints:
 - Upload UI for multiple local asset anchors, persisted as `assembly_points`.
 - Assembly placements по точкам сборки (`right_hand`, `left_hand`, `head_mount`, `back_mount`, `base_mount`, `stage_anchor`).
 - Server-side assembly manifest API для будущего mesh worker.
-- MVP OBJ/STL artifact builder: собирает uploaded OBJ placements в downloadable `.obj`, а uploaded STL и triangulated OBJ placements - в downloadable ASCII `.stl`.
+- MVP OBJ/STL artifact builder: собирает uploaded OBJ placements в downloadable `.obj`, а uploaded ASCII/binary STL и triangulated OBJ placements - в downloadable ASCII `.stl`.
 - Compatibility validation на backend.
 - Print-readiness summary на frontend с динамическим максимумом `scale.mm`.
 - Three.js preview, который реагирует на species, body, clothing, gear, pose, stage, base, scale, material zones и uploaded assembly assets.
