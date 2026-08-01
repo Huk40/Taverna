@@ -1132,6 +1132,46 @@ function AssemblyManifestPanel({ manifest, selectedProjectId, onRefresh }: Assem
               {manifest.warnings[0]}
             </small>
           )}
+          {manifest.placements.length > 0 && (
+            <div className="manifest-placement-list">
+              {manifest.placements.map((placement) => (
+                <article className="manifest-placement-item" key={placement.id}>
+                  <div className="manifest-placement-heading">
+                    <strong>{placement.asset.label}</strong>
+                    <span>
+                      {placement.slot} / {placement.asset.format.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="geometry-grid">
+                    <span>
+                      Socket
+                      <strong>{placement.attachment_point}</strong>
+                    </span>
+                    <span>
+                      Anchor
+                      <strong>{placement.asset_point.label || placement.asset_point_id}</strong>
+                    </span>
+                    <span>
+                      World pos
+                      <strong>{formatVector(placement.world_transform.position)}</strong>
+                    </span>
+                    <span>
+                      World rot
+                      <strong>{formatVector(placement.world_transform.rotation)}</strong>
+                    </span>
+                    <span>
+                      World scale
+                      <strong>{formatGeometryNumber(placement.world_transform.scale)}</strong>
+                    </span>
+                    <span>
+                      Bounds
+                      <strong>{placement.world_bounds ? formatVector(placement.world_bounds.size) : "pending"}</strong>
+                    </span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </>
       ) : (
         <p className="empty-state">{selectedProjectId ? "Save or refresh to build server manifest" : "Save the project to build server manifest"}</p>
