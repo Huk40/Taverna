@@ -9,15 +9,18 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"taverna/backend/internal/assembly"
 )
 
 type Handler struct {
-	repo   *Repository
-	logger *slog.Logger
+	repo     *Repository
+	assembly *assembly.Service
+	logger   *slog.Logger
 }
 
-func NewHandler(repo *Repository, logger *slog.Logger) *Handler {
-	return &Handler{repo: repo, logger: logger}
+func NewHandler(repo *Repository, assemblyService *assembly.Service, logger *slog.Logger) *Handler {
+	return &Handler{repo: repo, assembly: assemblyService, logger: logger}
 }
 
 func (h *Handler) ProjectExports(w http.ResponseWriter, r *http.Request) {
@@ -61,7 +64,20 @@ func (h *Handler) createProjectExport(w http.ResponseWriter, r *http.Request, pr
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	job, err := h.repo.Create(ctx, projectID, request)
+	manifest, err := h.assembly.Manifest(ctx, projectID)
+	if err != nil {
+		switch {
+		case errors.Is(err, assembly.ErrProjectNotFound):
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
+		case errors.Is(err, assembly.ErrInvalidAssembly):
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		default:
+			h.serverError(w, "build assembly manifest for export", err)
+		}
+		return
+	}
+
+	job, err := h.repo.Create(ctx, projectID, request, manifest)
 	if err != nil {
 		if errors.Is(err, ErrInvalidRequest) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid export payload"})

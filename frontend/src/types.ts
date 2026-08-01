@@ -143,6 +143,43 @@ export type AssemblyPointTarget = {
   description: string;
 };
 
+export type AssemblyTransform = {
+  position: Vector3Tuple;
+  rotation: Vector3Tuple;
+  scale: number;
+};
+
+export type ResolvedAssemblyPlacement = {
+  id: string;
+  slot: SlotID;
+  attachment_point: string;
+  asset: {
+    id: string;
+    label: string;
+    file_name: string;
+    content_type: string;
+    format: ModelAsset["format"];
+    size_bytes: number;
+    url: string;
+  };
+  asset_points: ModelAssetAssemblyPoint[];
+  socket_transform: AssemblyTransform;
+  user_transform: AssemblyTransform;
+  world_transform: AssemblyTransform;
+};
+
+export type AssemblyManifest = {
+  schema_version: 1;
+  project_id: string;
+  generated_at: string;
+  scale_mm: number;
+  character_scale: number;
+  unit: string;
+  selections: Record<string, string>;
+  placements: ResolvedAssemblyPlacement[];
+  warnings: string[];
+};
+
 export type EditorCategory = SlotID | "assets" | "assembly" | "color" | "projects" | "export";
 
 export type PrintReadiness = {

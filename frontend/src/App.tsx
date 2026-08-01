@@ -7,6 +7,7 @@ import {
   getAssemblyPointTargets,
   getCatalog,
   getProject,
+  getProjectAssembly,
   listModelAssets,
   listProjectExports,
   listProjects,
@@ -16,6 +17,7 @@ import {
 import EditorShell from "./EditorShell";
 import type {
   AssemblyPlacement,
+  AssemblyManifest,
   AssemblyPointTarget,
   Catalog,
   CharacterConfig,
@@ -63,6 +65,7 @@ export default function App() {
   const [lastExport, setLastExport] = useState<ExportJob | null>(null);
   const [exportJobs, setExportJobs] = useState<ExportJob[]>([]);
   const [modelAssets, setModelAssets] = useState<ModelAsset[]>([]);
+  const [assemblyManifest, setAssemblyManifest] = useState<AssemblyManifest | null>(null);
   const [assemblyTargets, setAssemblyTargets] = useState<AssemblyPointTarget[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -105,6 +108,7 @@ export default function App() {
           setProjectName(sharedProject.name);
           setConfig(normalizeConfig(sharedProject.config, loadedCatalog));
           await syncExportJobs(sharedProject.id);
+          await syncAssemblyManifest(sharedProject.id);
           setStatus("Проект открыт по ссылке");
           return;
         } catch (error) {
@@ -173,6 +177,7 @@ export default function App() {
           placements: current.assembly.placements.filter((placement) => placement.asset_id !== id),
         },
       }));
+      setAssemblyManifest(null);
       setStatus("3D-модель удалена");
     } catch (error) {
       setStatus(`Ошибка удаления 3D-модели: ${getErrorMessage(error)}`);
@@ -198,6 +203,7 @@ export default function App() {
       setConfig(normalizeConfig(saved.config, catalog));
       await refreshProjects();
       await syncExportJobs(saved.id);
+      await syncAssemblyManifest(saved.id);
       setStatus("Проект сохранен");
     } catch (error) {
       setStatus(`Ошибка сохранения: ${getErrorMessage(error)}`);
@@ -220,6 +226,7 @@ export default function App() {
       setProjectName(project.name);
       setConfig(normalizeConfig(project.config, catalog));
       await syncExportJobs(project.id);
+      await syncAssemblyManifest(project.id);
       setStatus("Проект открыт");
     } catch (error) {
       setStatus(`Ошибка открытия: ${getErrorMessage(error)}`);
@@ -238,6 +245,7 @@ export default function App() {
         setConfig(catalog?.defaults ?? fallbackConfig);
         setLastExport(null);
         setExportJobs([]);
+        setAssemblyManifest(null);
         clearProjectURLParam();
       }
       await refreshProjects();
@@ -324,6 +332,7 @@ export default function App() {
         placements: [...current.assembly.placements, placement],
       },
     }));
+    setAssemblyManifest(null);
     setActiveCategory("assembly");
     setStatus(`${asset.label} добавлен в сборку`);
   }
@@ -335,6 +344,7 @@ export default function App() {
         placements: current.assembly.placements.filter((placement) => placement.id !== id),
       },
     }));
+    setAssemblyManifest(null);
   }
 
   function updateAssemblyPlacement(id: string, patch: Partial<AssemblyPlacement>) {
@@ -355,6 +365,7 @@ export default function App() {
         ),
       },
     }));
+    setAssemblyManifest(null);
   }
 
   async function syncExportJobs(projectID: string) {
@@ -364,9 +375,29 @@ export default function App() {
     return jobs;
   }
 
+  async function syncAssemblyManifest(projectID: string) {
+    const manifest = await getProjectAssembly(projectID);
+    setAssemblyManifest(manifest);
+    return manifest;
+  }
+
+  async function refreshAssemblyManifest() {
+    if (!selectedProjectId) {
+      setStatus("Сначала сохраните проект");
+      return;
+    }
+    try {
+      const manifest = await syncAssemblyManifest(selectedProjectId);
+      setStatus(`Assembly manifest: ${manifest.placements.length} placements`);
+    } catch (error) {
+      setStatus(`Ошибка assembly manifest: ${getErrorMessage(error)}`);
+    }
+  }
+
   return (
     <EditorShell
       activeCategory={activeCategory}
+      assemblyManifest={assemblyManifest}
       assemblyTargets={assemblyTargets}
       catalog={catalog}
       config={config}
@@ -394,6 +425,7 @@ export default function App() {
       onDeleteModelAsset={(id) => void removeModelAsset(id)}
       onOpenProject={(id) => void openProject(id)}
       onProjectNameChange={setProjectName}
+      onRefreshAssemblyManifest={() => void refreshAssemblyManifest()}
       onRefreshProjects={() => void refreshProjects()}
       onRemoveProject={(id) => void removeProject(id)}
       onRemoveAssemblyPlacement={removeAssemblyPlacement}

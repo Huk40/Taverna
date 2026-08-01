@@ -67,7 +67,7 @@ func TestAllowedExportValues(t *testing.T) {
 }
 
 func TestBuildFakeArtifactIncludesPrintReadiness(t *testing.T) {
-	raw, err := buildFakeArtifact("project-1", "stl_print", "stl", json.RawMessage(`{}`))
+	raw, err := buildFakeArtifact("project-1", "stl_print", "stl", map[string]any{"placements": []any{}})
 	if err != nil {
 		t.Fatalf("buildFakeArtifact() error = %v", err)
 	}
@@ -89,15 +89,20 @@ func TestBuildFakeArtifactIncludesPrintReadiness(t *testing.T) {
 }
 
 func TestBuildFakeArtifactIncludesAssemblySummary(t *testing.T) {
-	config := json.RawMessage(`{
-		"assembly": {
-			"placements": [
-				{"asset_id": "asset-1", "slot": "gear", "attachment_point": "right_hand"}
-			]
-		}
-	}`)
+	manifest := map[string]any{
+		"schema_version": 1,
+		"placements": []map[string]any{
+			{
+				"slot":             "gear",
+				"attachment_point": "right_hand",
+				"asset": map[string]any{
+					"id": "asset-1",
+				},
+			},
+		},
+	}
 
-	raw, err := buildFakeArtifact("project-1", "glb_preview", "glb", config)
+	raw, err := buildFakeArtifact("project-1", "glb_preview", "glb", manifest)
 	if err != nil {
 		t.Fatalf("buildFakeArtifact() error = %v", err)
 	}
@@ -116,5 +121,8 @@ func TestBuildFakeArtifactIncludesAssemblySummary(t *testing.T) {
 	}
 	if assembly["placement_count"].(float64) != 1 {
 		t.Fatalf("placement_count = %v", assembly["placement_count"])
+	}
+	if _, ok := artifact["assembly_manifest"].(map[string]any); !ok {
+		t.Fatalf("assembly_manifest missing from artifact: %v", artifact)
 	}
 }

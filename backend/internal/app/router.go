@@ -10,13 +10,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"taverna/backend/internal/assembly"
 	"taverna/backend/internal/catalog"
 	"taverna/backend/internal/exportjob"
 	"taverna/backend/internal/modelasset"
 	"taverna/backend/internal/project"
 )
 
-func NewRouter(projects *project.Handler, catalogHandler *catalog.Handler, exports *exportjob.Handler, modelAssets *modelasset.Handler, pool *pgxpool.Pool, allowedOrigins []string) http.Handler {
+func NewRouter(projects *project.Handler, catalogHandler *catalog.Handler, exports *exportjob.Handler, modelAssets *modelasset.Handler, assemblyHandler *assembly.Handler, pool *pgxpool.Pool, allowedOrigins []string) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -50,6 +51,10 @@ func NewRouter(projects *project.Handler, catalogHandler *catalog.Handler, expor
 	mux.HandleFunc("/api/projects/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/exports") {
 			exports.ProjectExports(w, r)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/assembly") {
+			assemblyHandler.ProjectAssembly(w, r)
 			return
 		}
 		projects.Item(w, r)

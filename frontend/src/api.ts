@@ -1,4 +1,15 @@
-import type { AssemblyPointTarget, Catalog, CharacterConfig, CompatibilityRule, ExportJob, ModelAsset, Part, Project, Slot } from "./types";
+import type {
+  AssemblyManifest,
+  AssemblyPointTarget,
+  Catalog,
+  CharacterConfig,
+  CompatibilityRule,
+  ExportJob,
+  ModelAsset,
+  Part,
+  Project,
+  Slot,
+} from "./types";
 
 const API_URL = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
 
@@ -38,6 +49,10 @@ export function listProjects(): Promise<Project[]> {
 
 export function getProject(id: string): Promise<Project> {
   return request<Project>(`/api/projects/${id}`);
+}
+
+export function getProjectAssembly(id: string): Promise<AssemblyManifest> {
+  return request<AssemblyManifest>(`/api/projects/${id}/assembly`);
 }
 
 export function createProject(payload: ProjectPayload): Promise<Project> {

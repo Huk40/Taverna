@@ -23,7 +23,7 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-func (r *Repository) Create(ctx context.Context, projectID string, request CreateRequest) (ExportJob, error) {
+func (r *Repository) Create(ctx context.Context, projectID string, request CreateRequest, assemblyManifest any) (ExportJob, error) {
 	target := normalizeTarget(request.Target)
 	format := normalizeFormat(request.Format, target)
 	if !allowedTarget(target) {
@@ -33,7 +33,7 @@ func (r *Repository) Create(ctx context.Context, projectID string, request Creat
 		return ExportJob{}, fmt.Errorf("%w: unknown format %q", ErrInvalidRequest, format)
 	}
 
-	projectConfig, projectExists, err := r.projectConfig(ctx, projectID)
+	projectExists, err := r.projectExists(ctx, projectID)
 	if err != nil {
 		return ExportJob{}, fmt.Errorf("check project: %w", err)
 	}
@@ -52,7 +52,7 @@ func (r *Repository) Create(ctx context.Context, projectID string, request Creat
 		return ExportJob{}, err
 	}
 
-	artifact, err := buildFakeArtifact(projectID, target, format, projectConfig)
+	artifact, err := buildFakeArtifact(projectID, target, format, assemblyManifest)
 	if err != nil {
 		return ExportJob{}, fmt.Errorf("create artifact metadata: %w", err)
 	}
@@ -114,30 +114,23 @@ func (r *Repository) Get(ctx context.Context, id string) (ExportJob, error) {
 	return scanJob(row)
 }
 
-func (r *Repository) projectConfig(ctx context.Context, projectID string) (json.RawMessage, bool, error) {
-	var raw json.RawMessage
-	if err := r.pool.QueryRow(ctx, `SELECT config FROM projects WHERE id = $1`, projectID).Scan(&raw); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, false, nil
-		}
-		return nil, false, err
-	}
-	return raw, true, nil
-}
-
 func (r *Repository) projectExists(ctx context.Context, projectID string) (bool, error) {
-	_, exists, err := r.projectConfig(ctx, projectID)
-	return exists, err
+	var exists bool
+	if err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM projects WHERE id = $1)`, projectID).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
-func buildFakeArtifact(projectID string, target string, format string, projectConfig json.RawMessage) ([]byte, error) {
+func buildFakeArtifact(projectID string, target string, format string, assemblyManifest any) ([]byte, error) {
 	return json.Marshal(map[string]any{
 		"kind":              "fake_export",
 		"schema_version":    1,
 		"source_project_id": projectID,
 		"target":            target,
 		"format":            format,
-		"assembly":          assemblySummary(projectConfig),
+		"assembly":          assemblySummary(assemblyManifest),
+		"assembly_manifest": assemblyManifest,
 		"message":           "Placeholder export metadata. Redis, MinIO, and the mesh worker are intentionally not connected yet.",
 		"print_readiness": map[string]any{
 			"status": "metadata_ready",
@@ -155,43 +148,45 @@ func buildFakeArtifact(projectID string, target string, format string, projectCo
 	})
 }
 
-func assemblySummary(projectConfig json.RawMessage) map[string]any {
+func assemblySummary(assemblyManifest any) map[string]any {
 	summary := map[string]any{
 		"placement_count": 0,
 		"asset_ids":       []string{},
 		"status":          "no_uploaded_assets",
 	}
-	if len(projectConfig) == 0 || !json.Valid(projectConfig) {
+
+	raw, err := json.Marshal(assemblyManifest)
+	if err != nil || len(raw) == 0 || !json.Valid(raw) {
 		return summary
 	}
 
-	var config struct {
-		Assembly struct {
-			Placements []struct {
-				AssetID         string `json:"asset_id"`
-				Slot            string `json:"slot"`
-				AttachmentPoint string `json:"attachment_point"`
-			} `json:"placements"`
-		} `json:"assembly"`
+	var manifest struct {
+		Placements []struct {
+			Slot            string `json:"slot"`
+			AttachmentPoint string `json:"attachment_point"`
+			Asset           struct {
+				ID string `json:"id"`
+			} `json:"asset"`
+		} `json:"placements"`
 	}
-	if err := json.Unmarshal(projectConfig, &config); err != nil {
+	if err := json.Unmarshal(raw, &manifest); err != nil {
 		return summary
 	}
 
-	assetIDs := make([]string, 0, len(config.Assembly.Placements))
-	points := make([]string, 0, len(config.Assembly.Placements))
-	for _, placement := range config.Assembly.Placements {
-		if placement.AssetID != "" {
-			assetIDs = append(assetIDs, placement.AssetID)
+	assetIDs := make([]string, 0, len(manifest.Placements))
+	points := make([]string, 0, len(manifest.Placements))
+	for _, placement := range manifest.Placements {
+		if placement.Asset.ID != "" {
+			assetIDs = append(assetIDs, placement.Asset.ID)
 		}
 		if placement.Slot != "" && placement.AttachmentPoint != "" {
 			points = append(points, placement.Slot+"/"+placement.AttachmentPoint)
 		}
 	}
-	summary["placement_count"] = len(config.Assembly.Placements)
+	summary["placement_count"] = len(manifest.Placements)
 	summary["asset_ids"] = assetIDs
 	summary["attachment_points"] = points
-	if len(config.Assembly.Placements) > 0 {
+	if len(manifest.Placements) > 0 {
 		summary["status"] = "assembly_plan_ready"
 	}
 	return summary

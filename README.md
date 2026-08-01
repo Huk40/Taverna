@@ -44,6 +44,7 @@ Endpoints:
 - `POST /api/projects`: создать проект.
 - `GET /api/projects`: получить список проектов.
 - `GET /api/projects/{id}`: получить один проект.
+- `GET /api/projects/{id}/assembly`: получить server-side assembly manifest для сохраненной конфигурации.
 - `PUT /api/projects/{id}`: обновить проект.
 - `DELETE /api/projects/{id}`: удалить проект.
 
@@ -126,6 +127,19 @@ Model asset endpoints:
 
 Поддержанные форматы upload: `.glb`, `.gltf`, `.obj`, `.stl`, `.3mf`. Файлы хранятся локально в backend storage volume, metadata хранится в PostgreSQL таблице `model_assets`. Проект сохраняет ссылки на загруженные модели в `config.assembly.placements`, а backend проверяет, что referenced asset IDs существуют.
 
+## Assembly Manifest API
+
+`GET /api/projects/{id}/assembly` резолвит сохраненный `config.assembly.placements` в server-side manifest:
+
+- выбранные catalog slots проекта;
+- `scale_mm` и `character_scale`;
+- uploaded asset metadata и file URL;
+- socket transform точки сборки;
+- пользовательский transform placement-а;
+- итоговый `world_transform`, который будущий mesh worker сможет использовать для сборки GLB/STL/3MF.
+
+Этот endpoint не генерирует новый mesh-файл сам по себе, но фиксирует серверный контракт сборки: какой пользовательский файл, в какой attachment point и с каким transform должен быть поставлен.
+
 ## Export API
 
 Export endpoints:
@@ -141,7 +155,7 @@ Export endpoints:
 - `completed`
 - `failed`
 
-На текущем этапе Redis, MinIO и mesh worker намеренно не подключены. API создает job, сразу завершает его placeholder artifact metadata, включает краткий assembly summary по uploaded assets и сохраняет историю export jobs проекта, чтобы зафиксировать будущий контракт.
+На текущем этапе Redis, MinIO и mesh worker намеренно не подключены. API создает job, сразу завершает его placeholder artifact metadata, включает краткий assembly summary и полный `assembly_manifest` по uploaded assets, затем сохраняет историю export jobs проекта, чтобы зафиксировать будущий контракт.
 
 ## Share links
 
@@ -154,6 +168,7 @@ Export endpoints:
 - Versioned `CharacterConfig` со `schema_version: 1`.
 - User model asset upload API с локальным server storage.
 - Assembly placements по точкам сборки (`right_hand`, `left_hand`, `head_mount`, `back_mount`, `base_mount`, `stage_anchor`).
+- Server-side assembly manifest API для будущего mesh worker.
 - Compatibility validation на backend.
 - Print-readiness summary на frontend с динамическим максимумом `scale.mm`.
 - Three.js preview, который реагирует на species, body, clothing, gear, pose, stage, base, scale, material zones и uploaded assembly assets.

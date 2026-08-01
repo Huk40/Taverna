@@ -433,6 +433,15 @@ input[type="color"] {
   background: #141920;
 }
 
+.manifest-panel {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #121820;
+}
+
 .readiness-grid {
   flex-wrap: wrap;
 }
@@ -545,6 +554,12 @@ input[type="color"] {
 }
 
 .delete-button.small {
+  width: 34px;
+  min-height: 34px;
+  flex-basis: 34px;
+}
+
+.icon-button.small {
   width: 34px;
   min-height: 34px;
   flex-basis: 34px;

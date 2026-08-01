@@ -24,6 +24,7 @@ import type { LucideIcon } from "lucide-react";
 import CharacterPreview from "./CharacterPreview";
 import type {
   AssemblyPlacement,
+  AssemblyManifest,
   AssemblyPointTarget,
   Catalog,
   CharacterConfig,
@@ -39,6 +40,7 @@ import type {
 
 type EditorShellProps = {
   activeCategory: EditorCategory;
+  assemblyManifest: AssemblyManifest | null;
   assemblyTargets: AssemblyPointTarget[];
   catalog: Catalog | null;
   config: CharacterConfig;
@@ -66,6 +68,7 @@ type EditorShellProps = {
   onDeleteModelAsset: (id: string) => void;
   onOpenProject: (id: string) => void;
   onProjectNameChange: (value: string) => void;
+  onRefreshAssemblyManifest: () => void;
   onRefreshProjects: () => void;
   onRemoveProject: (id: string) => void;
   onRemoveAssemblyPlacement: (id: string) => void;
@@ -78,6 +81,7 @@ type EditorShellProps = {
 
 export default function EditorShell({
   activeCategory,
+  assemblyManifest,
   assemblyTargets,
   catalog,
   config,
@@ -105,6 +109,7 @@ export default function EditorShell({
   onDeleteModelAsset,
   onOpenProject,
   onProjectNameChange,
+  onRefreshAssemblyManifest,
   onRefreshProjects,
   onRemoveProject,
   onRemoveAssemblyPlacement,
@@ -168,6 +173,7 @@ export default function EditorShell({
         <aside className="inspector-panel">
           {renderInspector({
             activeCategory,
+            assemblyManifest,
             assemblyTargets,
             catalog,
             config,
@@ -191,6 +197,7 @@ export default function EditorShell({
             onCreateExport,
             onDeleteModelAsset,
             onOpenProject,
+            onRefreshAssemblyManifest,
             onRefreshProjects,
             onRemoveProject,
             onRemoveAssemblyPlacement,
@@ -208,6 +215,7 @@ export default function EditorShell({
 type InspectorProps = Pick<
   EditorShellProps,
   | "activeCategory"
+  | "assemblyManifest"
   | "assemblyTargets"
   | "catalog"
   | "config"
@@ -231,6 +239,7 @@ type InspectorProps = Pick<
   | "onCreateExport"
   | "onDeleteModelAsset"
   | "onOpenProject"
+  | "onRefreshAssemblyManifest"
   | "onRefreshProjects"
   | "onRemoveProject"
   | "onRemoveAssemblyPlacement"
@@ -298,6 +307,7 @@ function renderInspector(props: InspectorProps) {
     case "export":
       return (
         <ExportPanel
+          assemblyManifest={props.assemblyManifest}
           catalog={props.catalog}
           config={props.config}
           exportJobs={props.exportJobs}
@@ -309,6 +319,7 @@ function renderInspector(props: InspectorProps) {
           shareURL={props.shareURL}
           onCopyShareLink={props.onCopyShareLink}
           onCreateExport={props.onCreateExport}
+          onRefreshAssemblyManifest={props.onRefreshAssemblyManifest}
           onSlotChange={props.onSlotChange}
         />
       );
@@ -737,6 +748,7 @@ function ProjectPanel({ isLoading, projects, selectedProject, onOpenProject, onR
 }
 
 type ExportPanelProps = {
+  assemblyManifest: AssemblyManifest | null;
   catalog: Catalog;
   config: CharacterConfig;
   exportJobs: ExportJob[];
@@ -748,10 +760,12 @@ type ExportPanelProps = {
   shareURL: string;
   onCopyShareLink: () => void;
   onCreateExport: () => void;
+  onRefreshAssemblyManifest: () => void;
   onSlotChange: (slot: SlotID, partID: string) => void;
 };
 
 function ExportPanel({
+  assemblyManifest,
   catalog,
   config,
   exportJobs,
@@ -763,6 +777,7 @@ function ExportPanel({
   shareURL,
   onCopyShareLink,
   onCreateExport,
+  onRefreshAssemblyManifest,
   onSlotChange,
 }: ExportPanelProps) {
   return (
@@ -770,6 +785,7 @@ function ExportPanel({
       <PanelHeading title="Share / Export" subtitle="Target, print readiness, share link, and export jobs" />
       <PartBrowser catalog={catalog} config={config} parts={parts} slot="product_target" onSlotChange={onSlotChange} />
       {printReadiness && <PrintReadinessPanel readiness={printReadiness} />}
+      <AssemblyManifestPanel manifest={assemblyManifest} selectedProjectId={selectedProjectId} onRefresh={onRefreshAssemblyManifest} />
       <div className="share-box">
         <label className="field">
           <span>Share link</span>
@@ -812,6 +828,51 @@ type ScaleControlProps = {
   maxScale: number;
   onScaleChange: (value: number) => void;
 };
+
+type AssemblyManifestPanelProps = {
+  manifest: AssemblyManifest | null;
+  selectedProjectId: string | null;
+  onRefresh: () => void;
+};
+
+function AssemblyManifestPanel({ manifest, selectedProjectId, onRefresh }: AssemblyManifestPanelProps) {
+  return (
+    <div className="manifest-panel">
+      <div className="readiness-heading">
+        <strong>Server assembly</strong>
+        <button className="icon-button small" type="button" onClick={onRefresh} disabled={!selectedProjectId} title="Refresh assembly manifest">
+          <RefreshCw size={15} />
+        </button>
+      </div>
+      {manifest ? (
+        <>
+          <div className="readiness-grid">
+            <span>
+              Placements
+              <strong>{manifest.placements.length}</strong>
+            </span>
+            <span>
+              Character scale
+              <strong>{manifest.character_scale.toFixed(2)}</strong>
+            </span>
+            <span>
+              Generated
+              <strong>{new Date(manifest.generated_at).toLocaleTimeString()}</strong>
+            </span>
+          </div>
+          {manifest.warnings.length > 0 && (
+            <small className="disabled-reason">
+              <AlertTriangle size={14} />
+              {manifest.warnings[0]}
+            </small>
+          )}
+        </>
+      ) : (
+        <p className="empty-state">{selectedProjectId ? "Save or refresh to build server manifest" : "Save the project to build server manifest"}</p>
+      )}
+    </div>
+  );
+}
 
 function ScaleControl({ config, maxScale, onScaleChange }: ScaleControlProps) {
   return (
