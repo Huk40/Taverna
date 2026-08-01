@@ -393,13 +393,14 @@ function createUploadedPlaceholder(format: string) {
 
 async function loadUploadedModel(asset: ModelAsset): Promise<THREE.Object3D> {
   const url = assetFileURL(asset);
+  const preserveCoordinates = asset.metadata?.status === "parsed";
   if (asset.format === "glb" || asset.format === "gltf") {
     const gltf = await new GLTFLoader().loadAsync(url);
-    return normalizeUploadedObject(gltf.scene);
+    return prepareUploadedObject(gltf.scene, preserveCoordinates);
   }
   if (asset.format === "obj") {
     const object = await new OBJLoader().loadAsync(url);
-    return normalizeUploadedObject(object);
+    return prepareUploadedObject(object, preserveCoordinates);
   }
   if (asset.format === "stl") {
     const geometry = await new STLLoader().loadAsync(url);
@@ -408,12 +409,12 @@ async function loadUploadedModel(asset: ModelAsset): Promise<THREE.Object3D> {
       new THREE.MeshStandardMaterial({ color: 0xd8dee9, roughness: 0.36, metalness: 0.45 }),
     );
     mesh.castShadow = true;
-    return normalizeUploadedObject(mesh);
+    return prepareUploadedObject(mesh, preserveCoordinates);
   }
   return createUploadedPlaceholder(asset.format);
 }
 
-function normalizeUploadedObject(object: THREE.Object3D) {
+function prepareUploadedObject(object: THREE.Object3D, preserveCoordinates: boolean) {
   object.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       child.castShadow = true;
@@ -424,12 +425,14 @@ function normalizeUploadedObject(object: THREE.Object3D) {
     }
   });
 
-  const box = new THREE.Box3().setFromObject(object);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const maxAxis = Math.max(size.x, size.y, size.z) || 1;
-  object.position.sub(center);
-  object.scale.multiplyScalar(0.55 / maxAxis);
+  if (!preserveCoordinates) {
+    const box = new THREE.Box3().setFromObject(object);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const maxAxis = Math.max(size.x, size.y, size.z) || 1;
+    object.position.sub(center);
+    object.scale.multiplyScalar(0.55 / maxAxis);
+  }
 
   const wrapper = new THREE.Group();
   wrapper.add(object);

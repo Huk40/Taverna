@@ -343,7 +343,7 @@ export default function App() {
       transform: {
         position: [0, 0, 0],
         rotation: [0, 0, 0],
-        scale: 1,
+        scale: defaultPlacementScale(asset),
       },
     };
 
@@ -587,6 +587,44 @@ function normalizePlacement(value: unknown, index: number): AssemblyPlacement | 
       scale: clampNumber(asNumber(transform.scale, 1), 0.05, 10),
     },
   };
+}
+
+function defaultPlacementScale(asset: ModelAsset): number {
+  const bounds = asset.metadata?.status === "parsed" ? asset.metadata.bounds : undefined;
+  if (!bounds) {
+    return 1;
+  }
+
+  const maxAxis = Math.max(...bounds.size.map((value) => Math.abs(value)));
+  if (!Number.isFinite(maxAxis) || maxAxis <= 0) {
+    return 1;
+  }
+
+  return roundPlacementScale(clampNumber(defaultTargetMaxAxis(asset.slot) / maxAxis, 0.05, 10));
+}
+
+function defaultTargetMaxAxis(slot: SlotID): number {
+  switch (slot) {
+    case "gear":
+      return 0.9;
+    case "head":
+      return 0.55;
+    case "clothing":
+      return 1.2;
+    case "body":
+    case "species":
+      return 1.55;
+    case "base":
+      return 1.2;
+    case "stage":
+      return 1.35;
+    default:
+      return 1;
+  }
+}
+
+function roundPlacementScale(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 function selectionFor(config: CharacterConfig, slot: SlotID): string {
