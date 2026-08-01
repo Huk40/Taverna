@@ -135,6 +135,19 @@ export function uploadModelAsset(payload: {
   });
 }
 
+export function updateModelAsset(id: string, payload: {
+  label: string;
+  assemblyPoints: ModelAssetAssemblyPoint[];
+}): Promise<ModelAsset> {
+  return request<ModelAsset>(`/api/model-assets/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      label: payload.label,
+      assembly_points: payload.assemblyPoints,
+    }),
+  });
+}
+
 export function deleteModelAsset(id: string): Promise<void> {
   return request<void>(`/api/model-assets/${id}`, {
     method: "DELETE",

@@ -515,6 +515,12 @@ input[type="color"] {
   background: #141920;
 }
 
+.asset-edit-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
 .file-drop {
   position: relative;
   display: grid;
@@ -551,6 +557,7 @@ input[type="color"] {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
   min-width: 0;
 }

@@ -89,6 +89,25 @@ func (r *Repository) Get(ctx context.Context, id string) (ModelAsset, error) {
 	return scanAsset(row)
 }
 
+func (r *Repository) Update(ctx context.Context, id string, request UpdateRequest) (ModelAsset, error) {
+	request = normalizeUpdateRequest(request)
+	points, err := json.Marshal(request.AssemblyPoints)
+	if err != nil {
+		return ModelAsset{}, fmt.Errorf("marshal assembly points: %w", err)
+	}
+
+	row := r.pool.QueryRow(ctx, `
+		UPDATE model_assets
+		SET label = $2,
+			assembly_points = $3::jsonb,
+			updated_at = NOW()
+		WHERE id = $1
+		RETURNING id::text, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, created_at, updated_at
+	`, strings.TrimSpace(id), request.Label, string(points))
+
+	return scanAsset(row)
+}
+
 func (r *Repository) Delete(ctx context.Context, id string) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM model_assets WHERE id = $1`, strings.TrimSpace(id))
 	if err != nil {
@@ -186,6 +205,11 @@ func normalizeCreateRequest(request CreateRequest) CreateRequest {
 	request.ContentType = strings.TrimSpace(request.ContentType)
 	request.Format = strings.TrimSpace(strings.ToLower(request.Format))
 	request.StoragePath = strings.TrimSpace(request.StoragePath)
+	return request
+}
+
+func normalizeUpdateRequest(request UpdateRequest) UpdateRequest {
+	request.Label = strings.TrimSpace(request.Label)
 	return request
 }
 

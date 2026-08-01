@@ -52,6 +52,7 @@ type EditorShellProps = {
   isExporting: boolean;
   isLoading: boolean;
   isSaving: boolean;
+  isUpdatingAsset: boolean;
   isUploadingAsset: boolean;
   lastExport: ExportJob | null;
   modelAssets: ModelAsset[];
@@ -81,6 +82,7 @@ type EditorShellProps = {
   onScaleChange: (value: number) => void;
   onSlotChange: (slot: SlotID, partID: string) => void;
   onUpdateAssemblyPlacement: (id: string, patch: Partial<AssemblyPlacement>) => void;
+  onUpdateModelAsset: (id: string, label: string, assemblyPoints: ModelAssetAssemblyPoint[]) => Promise<void>;
   onUploadAsset: (file: File, label: string, slot: SlotID, attachmentPoint: string, assemblyPoints: ModelAssetAssemblyPoint[]) => void;
 };
 
@@ -95,6 +97,7 @@ export default function EditorShell({
   isExporting,
   isLoading,
   isSaving,
+  isUpdatingAsset,
   isUploadingAsset,
   lastExport,
   modelAssets,
@@ -124,6 +127,7 @@ export default function EditorShell({
   onScaleChange,
   onSlotChange,
   onUpdateAssemblyPlacement,
+  onUpdateModelAsset,
   onUploadAsset,
 }: EditorShellProps) {
   const currentTargetPart = partsBySlot.product_target?.find((part) => part.id === config.product_target);
@@ -188,6 +192,7 @@ export default function EditorShell({
             exportJobs,
             isExporting,
             isLoading,
+            isUpdatingAsset,
             isUploadingAsset,
             lastExport,
             modelAssets,
@@ -213,6 +218,7 @@ export default function EditorShell({
             onScaleChange,
             onSlotChange,
             onUpdateAssemblyPlacement,
+            onUpdateModelAsset,
             onUploadAsset,
           })}
         </aside>
@@ -232,6 +238,7 @@ type InspectorProps = Pick<
   | "exportJobs"
   | "isExporting"
   | "isLoading"
+  | "isUpdatingAsset"
   | "isUploadingAsset"
   | "lastExport"
   | "modelAssets"
@@ -257,6 +264,7 @@ type InspectorProps = Pick<
   | "onScaleChange"
   | "onSlotChange"
   | "onUpdateAssemblyPlacement"
+  | "onUpdateModelAsset"
   | "onUploadAsset"
 >;
 
@@ -284,10 +292,12 @@ function renderInspector(props: InspectorProps) {
       return (
         <AssetPanel
           assemblyTargets={props.assemblyTargets}
+          isUpdatingAsset={props.isUpdatingAsset}
           isUploadingAsset={props.isUploadingAsset}
           modelAssets={props.modelAssets}
           onAddAssemblyPlacement={props.onAddAssemblyPlacement}
           onDeleteModelAsset={props.onDeleteModelAsset}
+          onUpdateModelAsset={props.onUpdateModelAsset}
           onUploadAsset={props.onUploadAsset}
         />
       );
@@ -451,20 +461,34 @@ function PartBrowser({ catalog, config, parts, slot, onSlotChange }: PartBrowser
 
 type AssetPanelProps = {
   assemblyTargets: AssemblyPointTarget[];
+  isUpdatingAsset: boolean;
   isUploadingAsset: boolean;
   modelAssets: ModelAsset[];
   onAddAssemblyPlacement: (asset: ModelAsset) => void;
   onDeleteModelAsset: (id: string) => void;
+  onUpdateModelAsset: (id: string, label: string, assemblyPoints: ModelAssetAssemblyPoint[]) => Promise<void>;
   onUploadAsset: (file: File, label: string, slot: SlotID, attachmentPoint: string, assemblyPoints: ModelAssetAssemblyPoint[]) => void;
 };
 
-function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssemblyPlacement, onDeleteModelAsset, onUploadAsset }: AssetPanelProps) {
+function AssetPanel({
+  assemblyTargets,
+  isUpdatingAsset,
+  isUploadingAsset,
+  modelAssets,
+  onAddAssemblyPlacement,
+  onDeleteModelAsset,
+  onUpdateModelAsset,
+  onUploadAsset,
+}: AssetPanelProps) {
   const slotOptions = useMemo(() => uniqueSlotsForTargets(assemblyTargets), [assemblyTargets]);
   const [file, setFile] = useState<File | null>(null);
   const [label, setLabel] = useState("");
   const [slot, setSlot] = useState<SlotID>((slotOptions[0] ?? "gear") as SlotID);
   const [attachmentPoint, setAttachmentPoint] = useState("right_hand");
   const [anchors, setAnchors] = useState<ModelAssetAssemblyPoint[]>(() => [defaultUploadAnchor(1)]);
+  const [editingAssetID, setEditingAssetID] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState("");
+  const [editAnchors, setEditAnchors] = useState<ModelAssetAssemblyPoint[]>(() => [defaultUploadAnchor(1)]);
   const targetsForSlot = assemblyTargets.filter((target) => target.slot === slot);
   const selectedAttachmentPoint = targetsForSlot.some((target) => target.id === attachmentPoint)
     ? attachmentPoint
@@ -481,21 +505,25 @@ function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssem
     setAnchors([defaultUploadAnchor(1)]);
   }
 
-  function updateAnchor(index: number, patch: Partial<ModelAssetAssemblyPoint>) {
-    setAnchors((current) => current.map((anchor, itemIndex) => (itemIndex === index ? { ...anchor, ...patch } : anchor)));
+  function startEditingAsset(asset: ModelAsset) {
+    setEditingAssetID(asset.id);
+    setEditLabel(asset.label);
+    setEditAnchors(asset.assembly_points.length ? cloneAnchors(asset.assembly_points) : [defaultUploadAnchor(1)]);
   }
 
-  function addAnchor() {
-    setAnchors((current) => [...current, defaultUploadAnchor(nextAnchorIndex(current))]);
+  function cancelEditingAsset() {
+    setEditingAssetID(null);
+    setEditLabel("");
+    setEditAnchors([defaultUploadAnchor(1)]);
   }
 
-  function removeAnchor(index: number) {
-    setAnchors((current) => {
-      if (current.length === 1) {
-        return current;
-      }
-      return current.filter((_, itemIndex) => itemIndex !== index);
-    });
+  async function saveEditingAsset(asset: ModelAsset) {
+    try {
+      await onUpdateModelAsset(asset.id, editLabel || asset.label, normalizeUploadAnchors(editAnchors));
+      cancelEditingAsset();
+    } catch {
+      // App-level status already reports the backend validation error.
+    }
   }
 
   return (
@@ -549,40 +577,7 @@ function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssem
             ))}
           </select>
         </label>
-        <div className="anchor-editor">
-          <div className="asset-title-row">
-            <strong>Asset anchors</strong>
-            <button className="icon-button small" type="button" onClick={addAnchor} title="Add asset anchor">
-              <Plus size={16} />
-            </button>
-          </div>
-          {anchors.map((anchor, index) => (
-            <div className="anchor-card" key={index}>
-              <div className="asset-title-row">
-                <strong>{anchor.label || anchor.id || `Anchor ${index + 1}`}</strong>
-                <button
-                  className="delete-button small"
-                  type="button"
-                  onClick={() => removeAnchor(index)}
-                  disabled={anchors.length === 1}
-                  title="Remove asset anchor"
-                >
-                  <Trash2 size={15} />
-                </button>
-              </div>
-              <label className="field">
-                <span>Asset anchor ID</span>
-                <input value={anchor.id} onChange={(event) => updateAnchor(index, { id: event.target.value })} placeholder="origin" />
-              </label>
-              <label className="field">
-                <span>Asset anchor label</span>
-                <input value={anchor.label} onChange={(event) => updateAnchor(index, { label: event.target.value })} placeholder="Origin anchor" />
-              </label>
-              <VectorControl label="Anchor position" step={0.05} value={anchor.position} onChange={(position) => updateAnchor(index, { position })} />
-              <VectorControl label="Anchor rotation" step={5} value={anchor.rotation} onChange={(rotation) => updateAnchor(index, { rotation })} />
-            </div>
-          ))}
-        </div>
+        <AssetAnchorEditor anchors={anchors} title="Asset anchors" onChange={setAnchors} />
         <button className="wide-command primary-action" type="submit" disabled={!file || !selectedAttachmentPoint || isUploadingAsset}>
           <UploadCloud size={18} />
           {isUploadingAsset ? "Uploading..." : "Upload model"}
@@ -602,19 +597,104 @@ function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssem
               <span>{formatBytes(asset.size_bytes)}</span>
             </span>
             <span className="part-card-assets">Anchors: {asset.assembly_points.length ? asset.assembly_points.map((point) => point.label || point.id).join(", ") : "origin"}</span>
-            <div className="asset-actions">
-              <button className="wide-command" type="button" onClick={() => onAddAssemblyPlacement(asset)}>
-                <Boxes size={16} />
-                Add to assembly
-              </button>
-              <button className="delete-button" type="button" onClick={() => onDeleteModelAsset(asset.id)} title="Delete model asset">
-                <Trash2 size={16} />
-              </button>
-            </div>
+            {editingAssetID === asset.id ? (
+              <div className="asset-edit-panel">
+                <label className="field">
+                  <span>Label</span>
+                  <input value={editLabel} onChange={(event) => setEditLabel(event.target.value)} placeholder={asset.label} />
+                </label>
+                <AssetAnchorEditor anchors={editAnchors} title="Asset anchors" onChange={setEditAnchors} />
+                <div className="asset-actions">
+                  <button className="wide-command primary-action" type="button" onClick={() => void saveEditingAsset(asset)} disabled={isUpdatingAsset}>
+                    <Save size={16} />
+                    {isUpdatingAsset ? "Saving..." : "Save asset"}
+                  </button>
+                  <button className="icon-button" type="button" onClick={cancelEditingAsset} disabled={isUpdatingAsset} title="Cancel asset edit">
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="asset-actions">
+                <button className="wide-command" type="button" onClick={() => onAddAssemblyPlacement(asset)}>
+                  <Boxes size={16} />
+                  Add to assembly
+                </button>
+                <button className="wide-command" type="button" onClick={() => startEditingAsset(asset)}>
+                  <Ruler size={16} />
+                  Edit anchors
+                </button>
+                <button className="delete-button" type="button" onClick={() => onDeleteModelAsset(asset.id)} title="Delete model asset">
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            )}
           </article>
         ))}
         {modelAssets.length === 0 && <p className="empty-state">Upload a model to start assembling custom parts</p>}
       </div>
+    </div>
+  );
+}
+
+type AssetAnchorEditorProps = {
+  anchors: ModelAssetAssemblyPoint[];
+  title: string;
+  onChange: (anchors: ModelAssetAssemblyPoint[]) => void;
+};
+
+function AssetAnchorEditor({ anchors, title, onChange }: AssetAnchorEditorProps) {
+  const visibleAnchors = anchors.length ? anchors : [defaultUploadAnchor(1)];
+
+  function updateAnchor(index: number, patch: Partial<ModelAssetAssemblyPoint>) {
+    onChange(visibleAnchors.map((anchor, itemIndex) => (itemIndex === index ? { ...anchor, ...patch } : anchor)));
+  }
+
+  function addAnchor() {
+    onChange([...visibleAnchors, defaultUploadAnchor(nextAnchorIndex(visibleAnchors))]);
+  }
+
+  function removeAnchor(index: number) {
+    if (visibleAnchors.length === 1) {
+      return;
+    }
+    onChange(visibleAnchors.filter((_, itemIndex) => itemIndex !== index));
+  }
+
+  return (
+    <div className="anchor-editor">
+      <div className="asset-title-row">
+        <strong>{title}</strong>
+        <button className="icon-button small" type="button" onClick={addAnchor} title="Add asset anchor">
+          <Plus size={16} />
+        </button>
+      </div>
+      {visibleAnchors.map((anchor, index) => (
+        <div className="anchor-card" key={index}>
+          <div className="asset-title-row">
+            <strong>{anchor.label || anchor.id || `Anchor ${index + 1}`}</strong>
+            <button
+              className="delete-button small"
+              type="button"
+              onClick={() => removeAnchor(index)}
+              disabled={visibleAnchors.length === 1}
+              title="Remove asset anchor"
+            >
+              <Trash2 size={15} />
+            </button>
+          </div>
+          <label className="field">
+            <span>Asset anchor ID</span>
+            <input value={anchor.id} onChange={(event) => updateAnchor(index, { id: event.target.value })} placeholder="origin" />
+          </label>
+          <label className="field">
+            <span>Asset anchor label</span>
+            <input value={anchor.label} onChange={(event) => updateAnchor(index, { label: event.target.value })} placeholder="Origin anchor" />
+          </label>
+          <VectorControl label="Anchor position" step={0.05} value={anchor.position} onChange={(position) => updateAnchor(index, { position })} />
+          <VectorControl label="Anchor rotation" step={5} value={anchor.rotation} onChange={(rotation) => updateAnchor(index, { rotation })} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -1071,6 +1151,15 @@ function defaultUploadAnchor(index: number): ModelAssetAssemblyPoint {
     position: [0, 0, 0],
     rotation: [0, 0, 0],
   };
+}
+
+function cloneAnchors(anchors: ModelAssetAssemblyPoint[]): ModelAssetAssemblyPoint[] {
+  return anchors.map((anchor) => ({
+    id: anchor.id,
+    label: anchor.label,
+    position: [...anchor.position] as Vector3Tuple,
+    rotation: [...anchor.rotation] as Vector3Tuple,
+  }));
 }
 
 function nextAnchorIndex(anchors: ModelAssetAssemblyPoint[]): number {

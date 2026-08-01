@@ -92,6 +92,8 @@ func (h *Handler) Item(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
 		h.get(w, r, path)
+	case http.MethodPut:
+		h.update(w, r, path)
 	case http.MethodDelete:
 		h.delete(w, r, path)
 	default:
@@ -125,6 +127,58 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request, id string) {
 	asset, err := h.repo.Get(ctx, id)
 	if err != nil {
 		h.handleRepositoryError(w, "get model asset", err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, asset)
+}
+
+func (h *Handler) update(w http.ResponseWriter, r *http.Request, id string) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
+	var payload struct {
+		Label          *string          `json:"label"`
+		AssemblyPoints *[]AssemblyPoint `json:"assembly_points"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid model asset update payload"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	current, err := h.repo.Get(ctx, id)
+	if err != nil {
+		h.handleRepositoryError(w, "get model asset before update", err)
+		return
+	}
+
+	label := current.Label
+	if payload.Label != nil {
+		label = strings.TrimSpace(*payload.Label)
+		if label == "" {
+			label = current.FileName
+		}
+	}
+
+	points := current.AssemblyPoints
+	if payload.AssemblyPoints != nil {
+		points, err = normalizeAssemblyPoints(*payload.AssemblyPoints)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+	}
+
+	asset, err := h.repo.Update(ctx, id, UpdateRequest{
+		Label:          label,
+		AssemblyPoints: points,
+	})
+	if err != nil {
+		h.handleRepositoryError(w, "update model asset", err)
 		return
 	}
 
@@ -305,6 +359,10 @@ func decodeAssemblyPoints(raw string, fallbackPoint string) ([]AssemblyPoint, er
 	if err := json.Unmarshal([]byte(raw), &points); err != nil {
 		return nil, errors.New("assembly_points must be valid JSON")
 	}
+	return normalizeAssemblyPoints(points)
+}
+
+func normalizeAssemblyPoints(points []AssemblyPoint) ([]AssemblyPoint, error) {
 	if len(points) == 0 {
 		return nil, errors.New("assembly_points must include at least one point")
 	}

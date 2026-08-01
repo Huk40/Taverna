@@ -47,3 +47,8 @@ type CreateRequest struct {
 	StoragePath     string
 	AssemblyPoints  []AssemblyPoint
 }
+
+type UpdateRequest struct {
+	Label          string
+	AssemblyPoints []AssemblyPoint
+}

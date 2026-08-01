@@ -11,6 +11,7 @@ import {
   listModelAssets,
   listProjectExports,
   listProjects,
+  updateModelAsset,
   updateProject,
   uploadModelAsset,
 } from "./api";
@@ -71,6 +72,7 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isUpdatingAsset, setIsUpdatingAsset] = useState(false);
   const [isUploadingAsset, setIsUploadingAsset] = useState(false);
   const [activeCategory, setActiveCategory] = useState<EditorCategory>("species");
   const [status, setStatus] = useState("Готово");
@@ -183,6 +185,22 @@ export default function App() {
       setStatus("3D-модель удалена");
     } catch (error) {
       setStatus(`Ошибка удаления 3D-модели: ${getErrorMessage(error)}`);
+    }
+  }
+
+  async function saveModelAsset(id: string, label: string, assemblyPoints: ModelAssetAssemblyPoint[]) {
+    setIsUpdatingAsset(true);
+    try {
+      const asset = await updateModelAsset(id, { label, assemblyPoints });
+      setModelAssets((current) => current.map((item) => (item.id === asset.id ? asset : item)));
+      setConfig((current) => reconcilePlacementsForUpdatedAsset(current, asset));
+      setAssemblyManifest(null);
+      setStatus(`3D-модель обновлена: ${asset.label}`);
+    } catch (error) {
+      setStatus(`Ошибка обновления 3D-модели: ${getErrorMessage(error)}`);
+      throw error;
+    } finally {
+      setIsUpdatingAsset(false);
     }
   }
 
@@ -409,6 +427,7 @@ export default function App() {
       isExporting={isExporting}
       isLoading={isLoading}
       isSaving={isSaving}
+      isUpdatingAsset={isUpdatingAsset}
       isUploadingAsset={isUploadingAsset}
       lastExport={lastExport}
       modelAssets={modelAssets}
@@ -438,6 +457,7 @@ export default function App() {
       onScaleChange={updateScale}
       onSlotChange={updateSlot}
       onUpdateAssemblyPlacement={updateAssemblyPlacement}
+      onUpdateModelAsset={saveModelAsset}
       onUploadAsset={(file, label, slot, attachmentPoint, assemblyPoints) => void uploadAsset(file, label, slot, attachmentPoint, assemblyPoints)}
     />
   );
@@ -507,6 +527,25 @@ function normalizeAssembly(value: unknown): CharacterConfig["assembly"] {
     placements: value.placements
       .map((item, index) => normalizePlacement(item, index))
       .filter((placement): placement is AssemblyPlacement => Boolean(placement)),
+  };
+}
+
+function reconcilePlacementsForUpdatedAsset(config: CharacterConfig, asset: ModelAsset): CharacterConfig {
+  const pointIDs = new Set(asset.assembly_points.map((point) => point.id));
+  const fallbackPointID = asset.assembly_points[0]?.id ?? asset.attachment_point;
+  return {
+    ...config,
+    assembly: {
+      placements: config.assembly.placements.map((placement) => {
+        if (placement.asset_id !== asset.id || pointIDs.has(placement.asset_point_id)) {
+          return placement;
+        }
+        return {
+          ...placement,
+          asset_point_id: fallbackPointID,
+        };
+      }),
+    },
   };
 }
 

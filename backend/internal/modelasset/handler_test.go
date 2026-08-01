@@ -77,3 +77,21 @@ func TestDecodeAssemblyPointsRejectsOutOfRangePosition(t *testing.T) {
 		t.Fatal("expected out-of-range position to fail")
 	}
 }
+
+func TestNormalizeAssemblyPointsSupportsUpdatePayload(t *testing.T) {
+	points, err := normalizeAssemblyPoints([]AssemblyPoint{{
+		ID:       " tip ",
+		Label:    " ",
+		Position: Vector3{0, 1.25, 0},
+		Rotation: Vector3{0, 0, 90},
+	}})
+	if err != nil {
+		t.Fatalf("normalizeAssemblyPoints() error = %v", err)
+	}
+	if points[0].ID != "tip" {
+		t.Fatalf("point id = %q", points[0].ID)
+	}
+	if points[0].Label != "tip" {
+		t.Fatalf("point label = %q", points[0].Label)
+	}
+}
