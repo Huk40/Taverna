@@ -131,6 +131,8 @@ Model asset endpoints:
 
 `config.assembly.placements[].asset_point_id` selects the local anchor of the uploaded model. The server aligns that asset anchor to the character `attachment_point` and includes the resolved `asset_point` plus final `world_transform` in the assembly manifest.
 
+In the frontend upload flow, a successfully uploaded model is immediately added to `config.assembly.placements` at the selected `attachment_point`, so the user can see and tune the assembled asset without an extra manual add step.
+
 When uploaded OBJ/STL assets have parsed geometry metadata, the assembly manifest also includes per-placement `world_bounds` and combined manifest `bounds`, both computed from the resolved `world_transform`.
 
 Uploaded model asset responses include `metadata` with server-inspected geometry for OBJ and ASCII/binary STL files: parser status, source type, bounds (`min`, `max`, `size`, `center`), vertex count, face count, triangle count, and warnings. GLB, GLTF, and 3MF are stored and exposed through the same API, but server-side geometry inspection for those formats is intentionally deferred to the future mesh worker.

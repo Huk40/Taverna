@@ -162,8 +162,15 @@ export default function App() {
         assemblyPoints,
       });
       setModelAssets((current) => [asset, ...current.filter((item) => item.id !== asset.id)]);
+      setConfig((current) => ({
+        ...current,
+        assembly: {
+          placements: [...current.assembly.placements, placementForAsset(asset)],
+        },
+      }));
+      setAssemblyManifest(null);
       setActiveCategory("assembly");
-      setStatus(`3D-модель загружена: ${asset.label}`);
+      setStatus(`3D-модель загружена и добавлена в сборку: ${asset.label}`);
     } catch (error) {
       setStatus(`Ошибка загрузки 3D-модели: ${getErrorMessage(error)}`);
     } finally {
@@ -334,23 +341,10 @@ export default function App() {
   }
 
   function addAssemblyPlacement(asset: ModelAsset) {
-    const placement: AssemblyPlacement = {
-      id: makeClientID("placement"),
-      slot: asset.slot,
-      attachment_point: asset.attachment_point,
-      asset_point_id: asset.assembly_points[0]?.id ?? asset.attachment_point,
-      asset_id: asset.id,
-      transform: {
-        position: [0, 0, 0],
-        rotation: [0, 0, 0],
-        scale: defaultPlacementScale(asset),
-      },
-    };
-
     setConfig((current) => ({
       ...current,
       assembly: {
-        placements: [...current.assembly.placements, placement],
+        placements: [...current.assembly.placements, placementForAsset(asset)],
       },
     }));
     setAssemblyManifest(null);
@@ -527,6 +521,21 @@ function normalizeAssembly(value: unknown): CharacterConfig["assembly"] {
     placements: value.placements
       .map((item, index) => normalizePlacement(item, index))
       .filter((placement): placement is AssemblyPlacement => Boolean(placement)),
+  };
+}
+
+function placementForAsset(asset: ModelAsset): AssemblyPlacement {
+  return {
+    id: makeClientID("placement"),
+    slot: asset.slot,
+    attachment_point: asset.attachment_point,
+    asset_point_id: asset.assembly_points[0]?.id ?? asset.attachment_point,
+    asset_id: asset.id,
+    transform: {
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+      scale: defaultPlacementScale(asset),
+    },
   };
 }
 

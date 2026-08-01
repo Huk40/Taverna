@@ -582,7 +582,7 @@ function AssetPanel({
         <AssetAnchorEditor anchors={anchors} title="Asset anchors" onChange={setAnchors} />
         <button className="wide-command primary-action" type="submit" disabled={!file || !selectedAttachmentPoint || isUploadingAsset}>
           <UploadCloud size={18} />
-          {isUploadingAsset ? "Uploading..." : "Upload model"}
+          {isUploadingAsset ? "Uploading..." : "Upload and attach"}
         </button>
       </form>
 
