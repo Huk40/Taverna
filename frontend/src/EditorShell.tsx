@@ -9,6 +9,7 @@ import {
   FileDown,
   FolderOpen,
   Palette,
+  Plus,
   RefreshCw,
   Ruler,
   Save,
@@ -463,10 +464,7 @@ function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssem
   const [label, setLabel] = useState("");
   const [slot, setSlot] = useState<SlotID>((slotOptions[0] ?? "gear") as SlotID);
   const [attachmentPoint, setAttachmentPoint] = useState("right_hand");
-  const [anchorID, setAnchorID] = useState("origin");
-  const [anchorLabel, setAnchorLabel] = useState("Origin anchor");
-  const [anchorPosition, setAnchorPosition] = useState<Vector3Tuple>([0, 0, 0]);
-  const [anchorRotation, setAnchorRotation] = useState<Vector3Tuple>([0, 0, 0]);
+  const [anchors, setAnchors] = useState<ModelAssetAssemblyPoint[]>(() => [defaultUploadAnchor(1)]);
   const targetsForSlot = assemblyTargets.filter((target) => target.slot === slot);
   const selectedAttachmentPoint = targetsForSlot.some((target) => target.id === attachmentPoint)
     ? attachmentPoint
@@ -477,21 +475,27 @@ function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssem
     if (!file || !selectedAttachmentPoint) {
       return;
     }
-    const pointID = anchorID.trim() || "origin";
-    onUploadAsset(file, label || stripExtension(file.name), slot, selectedAttachmentPoint, [
-      {
-        id: pointID,
-        label: anchorLabel.trim() || pointID,
-        position: anchorPosition,
-        rotation: anchorRotation,
-      },
-    ]);
+    onUploadAsset(file, label || stripExtension(file.name), slot, selectedAttachmentPoint, normalizeUploadAnchors(anchors));
     setFile(null);
     setLabel("");
-    setAnchorID("origin");
-    setAnchorLabel("Origin anchor");
-    setAnchorPosition([0, 0, 0]);
-    setAnchorRotation([0, 0, 0]);
+    setAnchors([defaultUploadAnchor(1)]);
+  }
+
+  function updateAnchor(index: number, patch: Partial<ModelAssetAssemblyPoint>) {
+    setAnchors((current) => current.map((anchor, itemIndex) => (itemIndex === index ? { ...anchor, ...patch } : anchor)));
+  }
+
+  function addAnchor() {
+    setAnchors((current) => [...current, defaultUploadAnchor(nextAnchorIndex(current))]);
+  }
+
+  function removeAnchor(index: number) {
+    setAnchors((current) => {
+      if (current.length === 1) {
+        return current;
+      }
+      return current.filter((_, itemIndex) => itemIndex !== index);
+    });
   }
 
   return (
@@ -546,16 +550,38 @@ function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssem
           </select>
         </label>
         <div className="anchor-editor">
-          <label className="field">
-            <span>Asset anchor ID</span>
-            <input value={anchorID} onChange={(event) => setAnchorID(event.target.value)} placeholder="origin" />
-          </label>
-          <label className="field">
-            <span>Asset anchor label</span>
-            <input value={anchorLabel} onChange={(event) => setAnchorLabel(event.target.value)} placeholder="Origin anchor" />
-          </label>
-          <VectorControl label="Anchor position" step={0.05} value={anchorPosition} onChange={setAnchorPosition} />
-          <VectorControl label="Anchor rotation" step={5} value={anchorRotation} onChange={setAnchorRotation} />
+          <div className="asset-title-row">
+            <strong>Asset anchors</strong>
+            <button className="icon-button small" type="button" onClick={addAnchor} title="Add asset anchor">
+              <Plus size={16} />
+            </button>
+          </div>
+          {anchors.map((anchor, index) => (
+            <div className="anchor-card" key={index}>
+              <div className="asset-title-row">
+                <strong>{anchor.label || anchor.id || `Anchor ${index + 1}`}</strong>
+                <button
+                  className="delete-button small"
+                  type="button"
+                  onClick={() => removeAnchor(index)}
+                  disabled={anchors.length === 1}
+                  title="Remove asset anchor"
+                >
+                  <Trash2 size={15} />
+                </button>
+              </div>
+              <label className="field">
+                <span>Asset anchor ID</span>
+                <input value={anchor.id} onChange={(event) => updateAnchor(index, { id: event.target.value })} placeholder="origin" />
+              </label>
+              <label className="field">
+                <span>Asset anchor label</span>
+                <input value={anchor.label} onChange={(event) => updateAnchor(index, { label: event.target.value })} placeholder="Origin anchor" />
+              </label>
+              <VectorControl label="Anchor position" step={0.05} value={anchor.position} onChange={(position) => updateAnchor(index, { position })} />
+              <VectorControl label="Anchor rotation" step={5} value={anchor.rotation} onChange={(rotation) => updateAnchor(index, { rotation })} />
+            </div>
+          ))}
         </div>
         <button className="wide-command primary-action" type="submit" disabled={!file || !selectedAttachmentPoint || isUploadingAsset}>
           <UploadCloud size={18} />
@@ -575,7 +601,7 @@ function AssetPanel({ assemblyTargets, isUploadingAsset, modelAssets, onAddAssem
               <span>{asset.slot} / {asset.attachment_point}</span>
               <span>{formatBytes(asset.size_bytes)}</span>
             </span>
-            <span className="part-card-assets">Anchors: {asset.assembly_points.map((point) => point.label || point.id).join(", ")}</span>
+            <span className="part-card-assets">Anchors: {asset.assembly_points.length ? asset.assembly_points.map((point) => point.label || point.id).join(", ") : "origin"}</span>
             <div className="asset-actions">
               <button className="wide-command" type="button" onClick={() => onAddAssemblyPlacement(asset)}>
                 <Boxes size={16} />
@@ -1035,6 +1061,40 @@ function uniqueSlotsForTargets(targets: AssemblyPointTarget[]): SlotID[] {
 
 function stripExtension(fileName: string): string {
   return fileName.replace(/\.[^.]+$/, "");
+}
+
+function defaultUploadAnchor(index: number): ModelAssetAssemblyPoint {
+  const id = index === 1 ? "origin" : `anchor_${index}`;
+  return {
+    id,
+    label: index === 1 ? "Origin anchor" : `Anchor ${index}`,
+    position: [0, 0, 0],
+    rotation: [0, 0, 0],
+  };
+}
+
+function nextAnchorIndex(anchors: ModelAssetAssemblyPoint[]): number {
+  let index = anchors.length + 1;
+  while (anchors.some((anchor) => anchor.id.trim() === `anchor_${index}`)) {
+    index += 1;
+  }
+  return index;
+}
+
+function normalizeUploadAnchors(anchors: ModelAssetAssemblyPoint[]): ModelAssetAssemblyPoint[] {
+  return anchors.map((anchor, index) => {
+    const id = anchor.id.trim() || `anchor_${index + 1}`;
+    return {
+      id,
+      label: anchor.label.trim() || id,
+      position: sanitizeVector(anchor.position),
+      rotation: sanitizeVector(anchor.rotation),
+    };
+  });
+}
+
+function sanitizeVector(value: Vector3Tuple): Vector3Tuple {
+  return value.map((item) => (Number.isFinite(item) ? item : 0)) as Vector3Tuple;
 }
 
 function formatBytes(value: number): string {

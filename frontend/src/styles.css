@@ -505,6 +505,16 @@ input[type="color"] {
   background: #10161d;
 }
 
+.anchor-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #141920;
+}
+
 .file-drop {
   position: relative;
   display: grid;

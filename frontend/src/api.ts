@@ -125,7 +125,7 @@ export function uploadModelAsset(payload: {
   formData.append("label", payload.label);
   formData.append("slot", payload.slot);
   formData.append("attachment_point", payload.attachmentPoint);
-  if (payload.assemblyPoints) {
+  if (payload.assemblyPoints?.length) {
     formData.append("assembly_points", JSON.stringify(payload.assemblyPoints));
   }
 

@@ -174,7 +174,7 @@ Export endpoints:
 - Backend catalog API.
 - Versioned `CharacterConfig` со `schema_version: 1`.
 - User model asset upload API с локальным server storage.
-- Upload UI for a primary local asset anchor, persisted as `assembly_points`.
+- Upload UI for multiple local asset anchors, persisted as `assembly_points`.
 - Assembly placements по точкам сборки (`right_hand`, `left_hand`, `head_mount`, `back_mount`, `base_mount`, `stage_anchor`).
 - Server-side assembly manifest API для будущего mesh worker.
 - MVP OBJ/STL artifact builder: собирает uploaded OBJ placements в downloadable `.obj`, а uploaded STL и triangulated OBJ placements - в downloadable ASCII `.stl`.
