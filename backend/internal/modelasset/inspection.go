@@ -2,7 +2,9 @@ package modelasset
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -25,7 +27,9 @@ func InspectGeometry(path string, format string) GeometryMetadata {
 		metadata, err = inspectOBJGeometry(path)
 	case FormatSTL:
 		metadata, err = inspectSTLGeometry(path)
-	case FormatGLB, FormatGLTF, Format3MF:
+	case FormatGLB:
+		metadata, err = inspectGLBGeometry(path)
+	case FormatGLTF, Format3MF:
 		return normalizeGeometryMetadata(GeometryMetadata{
 			Status:   "stored",
 			Source:   format,
@@ -194,6 +198,52 @@ func inspectASCIISTLGeometry(path string) (GeometryMetadata, error) {
 	return finishGeometryMetadata("ascii_stl", vertexCount, facetCount, triangleCount, bounds, warnings), nil
 }
 
+func inspectGLBGeometry(path string) (GeometryMetadata, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return GeometryMetadata{}, fmt.Errorf("read GLB geometry: %w", err)
+	}
+
+	document, binChunk, warnings, err := parseGLB(raw)
+	if err != nil {
+		return GeometryMetadata{}, err
+	}
+
+	bounds := geometryBoundsAccumulator{}
+	vertexCount := 0
+	triangleCount := 0
+	seenPositionAccessors := make(map[int]struct{})
+
+	for _, mesh := range document.Meshes {
+		for _, primitive := range mesh.Primitives {
+			positionAccessorIndex, ok := primitive.Attributes["POSITION"]
+			if !ok {
+				warnings = appendGeometryWarning(warnings, "GLB primitive does not include POSITION attribute")
+				continue
+			}
+
+			if _, seen := seenPositionAccessors[positionAccessorIndex]; !seen {
+				count, err := addGLBPositionAccessorBounds(document, binChunk, positionAccessorIndex, &bounds)
+				if err != nil {
+					warnings = appendGeometryWarning(warnings, err.Error())
+				} else {
+					vertexCount += count
+					seenPositionAccessors[positionAccessorIndex] = struct{}{}
+				}
+			}
+
+			count, err := glbPrimitiveTriangleCount(document, primitive)
+			if err != nil {
+				warnings = appendGeometryWarning(warnings, err.Error())
+				continue
+			}
+			triangleCount += count
+		}
+	}
+
+	return finishGeometryMetadata("glb", vertexCount, triangleCount, triangleCount, bounds, warnings), nil
+}
+
 func finishGeometryMetadata(
 	source string,
 	vertexCount int,
@@ -264,6 +314,212 @@ func (bounds geometryBoundsAccumulator) Bounds() *GeometryBounds {
 		Size:   size,
 		Center: center,
 	}
+}
+
+type glbDocument struct {
+	Accessors   []glbAccessor   `json:"accessors"`
+	BufferViews []glbBufferView `json:"bufferViews"`
+	Meshes      []glbMesh       `json:"meshes"`
+}
+
+type glbAccessor struct {
+	BufferView    *int      `json:"bufferView"`
+	ByteOffset    int       `json:"byteOffset"`
+	ComponentType int       `json:"componentType"`
+	Count         int       `json:"count"`
+	Type          string    `json:"type"`
+	Min           []float64 `json:"min"`
+	Max           []float64 `json:"max"`
+}
+
+type glbBufferView struct {
+	Buffer     int `json:"buffer"`
+	ByteOffset int `json:"byteOffset"`
+	ByteLength int `json:"byteLength"`
+	ByteStride int `json:"byteStride"`
+}
+
+type glbMesh struct {
+	Primitives []glbPrimitive `json:"primitives"`
+}
+
+type glbPrimitive struct {
+	Attributes map[string]int `json:"attributes"`
+	Indices    *int           `json:"indices"`
+	Mode       *int           `json:"mode"`
+}
+
+const (
+	glbMagic     = 0x46546c67
+	glbVersion   = 2
+	glbJSONChunk = 0x4e4f534a
+	glbBINChunk  = 0x004e4942
+)
+
+func parseGLB(raw []byte) (glbDocument, []byte, []string, error) {
+	if len(raw) < 12 {
+		return glbDocument{}, nil, nil, fmt.Errorf("read GLB geometry: file is shorter than header")
+	}
+	if binary.LittleEndian.Uint32(raw[0:4]) != glbMagic {
+		return glbDocument{}, nil, nil, fmt.Errorf("read GLB geometry: invalid magic")
+	}
+	if version := binary.LittleEndian.Uint32(raw[4:8]); version != glbVersion {
+		return glbDocument{}, nil, nil, fmt.Errorf("read GLB geometry: unsupported version %d", version)
+	}
+
+	totalLength := int(binary.LittleEndian.Uint32(raw[8:12]))
+	if totalLength > len(raw) || totalLength < 12 {
+		return glbDocument{}, nil, nil, fmt.Errorf("read GLB geometry: invalid declared length")
+	}
+
+	var jsonChunk []byte
+	var binChunk []byte
+	warnings := []string{}
+	offset := 12
+	for offset+8 <= totalLength {
+		chunkLength := int(binary.LittleEndian.Uint32(raw[offset : offset+4]))
+		chunkType := binary.LittleEndian.Uint32(raw[offset+4 : offset+8])
+		offset += 8
+		if chunkLength > totalLength-offset {
+			return glbDocument{}, nil, nil, fmt.Errorf("read GLB geometry: invalid chunk length")
+		}
+
+		chunk := raw[offset : offset+chunkLength]
+		switch chunkType {
+		case glbJSONChunk:
+			if jsonChunk == nil {
+				jsonChunk = bytes.TrimRight(chunk, "\x00 \n\r\t")
+			}
+		case glbBINChunk:
+			if binChunk == nil {
+				binChunk = chunk
+			}
+		default:
+			warnings = appendGeometryWarning(warnings, fmt.Sprintf("GLB contains unsupported chunk type %d", chunkType))
+		}
+		offset += chunkLength
+	}
+
+	if jsonChunk == nil {
+		return glbDocument{}, nil, nil, fmt.Errorf("read GLB geometry: JSON chunk is missing")
+	}
+
+	var document glbDocument
+	if err := json.Unmarshal(jsonChunk, &document); err != nil {
+		return glbDocument{}, nil, nil, fmt.Errorf("parse GLB JSON chunk: %w", err)
+	}
+
+	return document, binChunk, warnings, nil
+}
+
+func addGLBPositionAccessorBounds(document glbDocument, binChunk []byte, accessorIndex int, bounds *geometryBoundsAccumulator) (int, error) {
+	accessor, err := glbAccessorAt(document, accessorIndex)
+	if err != nil {
+		return 0, err
+	}
+	if accessor.ComponentType != 5126 || accessor.Type != "VEC3" {
+		return 0, fmt.Errorf("GLB POSITION accessor %d must be FLOAT VEC3", accessorIndex)
+	}
+	if accessor.Count <= 0 {
+		return 0, fmt.Errorf("GLB POSITION accessor %d has no vertices", accessorIndex)
+	}
+
+	if len(accessor.Min) >= 3 && len(accessor.Max) >= 3 {
+		bounds.Add(Vector3{accessor.Min[0], accessor.Min[1], accessor.Min[2]})
+		bounds.Add(Vector3{accessor.Max[0], accessor.Max[1], accessor.Max[2]})
+		return accessor.Count, nil
+	}
+
+	if accessor.BufferView == nil {
+		return 0, fmt.Errorf("GLB POSITION accessor %d has no bufferView and no min/max bounds", accessorIndex)
+	}
+	if len(binChunk) == 0 {
+		return 0, fmt.Errorf("GLB POSITION accessor %d requires a BIN chunk", accessorIndex)
+	}
+
+	bufferView, err := glbBufferViewAt(document, *accessor.BufferView)
+	if err != nil {
+		return 0, err
+	}
+	if bufferView.Buffer != 0 {
+		return 0, fmt.Errorf("GLB POSITION accessor %d references unsupported buffer %d", accessorIndex, bufferView.Buffer)
+	}
+
+	stride := bufferView.ByteStride
+	if stride == 0 {
+		stride = 12
+	}
+	if stride < 12 {
+		return 0, fmt.Errorf("GLB POSITION accessor %d has byteStride smaller than VEC3 FLOAT", accessorIndex)
+	}
+
+	start := bufferView.ByteOffset + accessor.ByteOffset
+	viewEnd := bufferView.ByteOffset + bufferView.ByteLength
+	if start < 0 || viewEnd > len(binChunk) || start > viewEnd {
+		return 0, fmt.Errorf("GLB POSITION accessor %d has invalid buffer range", accessorIndex)
+	}
+
+	for index := 0; index < accessor.Count; index++ {
+		positionOffset := start + index*stride
+		if positionOffset+12 > viewEnd || positionOffset+12 > len(binChunk) {
+			return 0, fmt.Errorf("GLB POSITION accessor %d reads past bufferView", accessorIndex)
+		}
+		bounds.Add(Vector3{
+			float64(math.Float32frombits(binary.LittleEndian.Uint32(binChunk[positionOffset : positionOffset+4]))),
+			float64(math.Float32frombits(binary.LittleEndian.Uint32(binChunk[positionOffset+4 : positionOffset+8]))),
+			float64(math.Float32frombits(binary.LittleEndian.Uint32(binChunk[positionOffset+8 : positionOffset+12]))),
+		})
+	}
+
+	return accessor.Count, nil
+}
+
+func glbPrimitiveTriangleCount(document glbDocument, primitive glbPrimitive) (int, error) {
+	vertexCount := 0
+	if primitive.Indices != nil {
+		accessor, err := glbAccessorAt(document, *primitive.Indices)
+		if err != nil {
+			return 0, err
+		}
+		vertexCount = accessor.Count
+	} else if positionAccessorIndex, ok := primitive.Attributes["POSITION"]; ok {
+		accessor, err := glbAccessorAt(document, positionAccessorIndex)
+		if err != nil {
+			return 0, err
+		}
+		vertexCount = accessor.Count
+	}
+
+	mode := 4
+	if primitive.Mode != nil {
+		mode = *primitive.Mode
+	}
+
+	switch mode {
+	case 4:
+		if vertexCount%3 != 0 {
+			return vertexCount / 3, fmt.Errorf("GLB triangle primitive count is not divisible by three")
+		}
+		return vertexCount / 3, nil
+	case 5, 6:
+		return int(math.Max(0, float64(vertexCount-2))), nil
+	default:
+		return 0, fmt.Errorf("GLB primitive mode %d is not supported for triangle counts", mode)
+	}
+}
+
+func glbAccessorAt(document glbDocument, index int) (glbAccessor, error) {
+	if index < 0 || index >= len(document.Accessors) {
+		return glbAccessor{}, fmt.Errorf("GLB accessor %d is out of range", index)
+	}
+	return document.Accessors[index], nil
+}
+
+func glbBufferViewAt(document glbDocument, index int) (glbBufferView, error) {
+	if index < 0 || index >= len(document.BufferViews) {
+		return glbBufferView{}, fmt.Errorf("GLB bufferView %d is out of range", index)
+	}
+	return document.BufferViews[index], nil
 }
 
 func parseGeometryVector(values []string) (Vector3, error) {

@@ -133,11 +133,11 @@ Model asset endpoints:
 
 In the frontend upload flow, a successfully uploaded model is immediately added to `config.assembly.placements` at the selected `attachment_point`, so the user can see and tune the assembled asset without an extra manual add step.
 
-When an uploaded OBJ/STL asset has parsed bounds, the asset anchor editor offers position presets such as center, bottom, top, left, right, front, and back. These presets are stored as normal `assembly_points` and make it faster to align the model to character sockets.
+When an uploaded OBJ/STL/GLB asset has parsed bounds, the asset anchor editor offers position presets such as center, bottom, top, left, right, front, and back. These presets are stored as normal `assembly_points` and make it faster to align the model to character sockets.
 
-When uploaded OBJ/STL assets have parsed geometry metadata, the assembly manifest also includes per-placement `world_bounds` and combined manifest `bounds`, both computed from the resolved `world_transform`.
+When uploaded OBJ/STL/GLB assets have parsed geometry metadata, the assembly manifest also includes per-placement `world_bounds` and combined manifest `bounds`, both computed from the resolved `world_transform`.
 
-Uploaded model asset responses include `metadata` with server-inspected geometry for OBJ and ASCII/binary STL files: parser status, source type, bounds (`min`, `max`, `size`, `center`), vertex count, face count, triangle count, and warnings. GLB, GLTF, and 3MF are stored and exposed through the same API, but server-side geometry inspection for those formats is intentionally deferred to the future mesh worker.
+Uploaded model asset responses include `metadata` with server-inspected geometry for OBJ, embedded-bin GLB, and ASCII/binary STL files: parser status, source type, bounds (`min`, `max`, `size`, `center`), vertex count, face count, triangle count, and warnings. GLTF and 3MF are stored and exposed through the same API, but server-side geometry inspection for those formats is intentionally deferred to the future mesh worker.
 
 ## Assembly Manifest API
 
@@ -184,7 +184,7 @@ Export endpoints:
 - Versioned `CharacterConfig` со `schema_version: 1`.
 - User model asset upload API с локальным server storage.
 - Upload UI for multiple local asset anchors, persisted as `assembly_points`.
-- Server-inspected geometry metadata for uploaded OBJ and ASCII/binary STL assets.
+- Server-inspected geometry metadata for uploaded OBJ, embedded-bin GLB, and ASCII/binary STL assets.
 - Assembly placements по точкам сборки (`right_hand`, `left_hand`, `head_mount`, `back_mount`, `base_mount`, `stage_anchor`).
 - Server-side assembly manifest API для будущего mesh worker.
 - Server-side assembled bounds in the assembly manifest for parsed uploaded assets.
