@@ -35,16 +35,23 @@ func NewArtifactBuilder(storageDir string) *ArtifactBuilder {
 }
 
 func (b *ArtifactBuilder) Build(jobID string, manifest assembly.Manifest, format string) (ArtifactResult, error) {
-	if format != "obj" {
+	switch format {
+	case "obj":
+		return b.buildOBJ(jobID, manifest)
+	case "stl":
+		return b.buildSTL(jobID, manifest)
+	default:
 		return ArtifactResult{
 			Kind:        "manifest_only",
 			Format:      format,
 			ContentType: "application/json",
 			URL:         "",
-			Warnings:    []string{"mesh artifact generation currently supports OBJ export only"},
+			Warnings:    []string{"mesh artifact generation currently supports OBJ and STL export only"},
 		}, nil
 	}
+}
 
+func (b *ArtifactBuilder) buildOBJ(jobID string, manifest assembly.Manifest) (ArtifactResult, error) {
 	if err := os.MkdirAll(b.storageDir, 0o755); err != nil {
 		return ArtifactResult{}, fmt.Errorf("create export artifact storage: %w", err)
 	}
@@ -109,6 +116,87 @@ func (b *ArtifactBuilder) Build(jobID string, manifest assembly.Manifest, format
 	info, err := os.Stat(storagePath)
 	if err != nil {
 		return ArtifactResult{}, fmt.Errorf("stat OBJ artifact: %w", err)
+	}
+	result.SizeBytes = info.Size()
+
+	return result, nil
+}
+
+func (b *ArtifactBuilder) buildSTL(jobID string, manifest assembly.Manifest) (ArtifactResult, error) {
+	if err := os.MkdirAll(b.storageDir, 0o755); err != nil {
+		return ArtifactResult{}, fmt.Errorf("create export artifact storage: %w", err)
+	}
+
+	fileName := jobID + ".stl"
+	storagePath := filepath.Join(b.storageDir, fileName)
+	file, err := os.OpenFile(storagePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return ArtifactResult{}, fmt.Errorf("create STL artifact: %w", err)
+	}
+
+	writer := bufio.NewWriter(file)
+	result := ArtifactResult{
+		Kind:           "assembled_stl",
+		FileName:       fileName,
+		Format:         "stl",
+		ContentType:    "model/stl",
+		StoragePath:    storagePath,
+		URL:            "/api/exports/" + jobID + "/artifact",
+		IncludedAssets: []string{},
+		SkippedAssets:  []string{},
+		Warnings:       []string{},
+	}
+	solidName := sanitizeOBJName("taverna_" + jobID)
+
+	if _, err := fmt.Fprintf(writer, "solid %s\n", solidName); err != nil {
+		_ = file.Close()
+		return ArtifactResult{}, fmt.Errorf("write STL header: %w", err)
+	}
+
+	for _, placement := range manifest.Placements {
+		if placement.Asset.Format != modelasset.FormatOBJ && placement.Asset.Format != modelasset.FormatSTL {
+			result.SkippedAssets = append(result.SkippedAssets, placement.Asset.ID)
+			result.Warnings = append(result.Warnings, fmt.Sprintf("asset %s has format %s and was skipped by STL assembler", placement.Asset.ID, placement.Asset.Format))
+			continue
+		}
+		if strings.TrimSpace(placement.Asset.StoragePath) == "" {
+			result.SkippedAssets = append(result.SkippedAssets, placement.Asset.ID)
+			result.Warnings = append(result.Warnings, fmt.Sprintf("asset %s has no storage path", placement.Asset.ID))
+			continue
+		}
+		triangleCount, err := appendSTLPlacement(writer, placement)
+		if err != nil {
+			result.SkippedAssets = append(result.SkippedAssets, placement.Asset.ID)
+			result.Warnings = append(result.Warnings, err.Error())
+			continue
+		}
+		if triangleCount == 0 {
+			result.SkippedAssets = append(result.SkippedAssets, placement.Asset.ID)
+			result.Warnings = append(result.Warnings, fmt.Sprintf("asset %s did not contain triangles", placement.Asset.ID))
+			continue
+		}
+		result.IncludedAssets = append(result.IncludedAssets, placement.Asset.ID)
+	}
+
+	if len(result.IncludedAssets) == 0 {
+		result.Warnings = append(result.Warnings, "no OBJ or ASCII STL assets were included in the assembled artifact")
+	}
+
+	if _, err := fmt.Fprintf(writer, "endsolid %s\n", solidName); err != nil {
+		_ = file.Close()
+		return ArtifactResult{}, fmt.Errorf("write STL footer: %w", err)
+	}
+	if err := writer.Flush(); err != nil {
+		_ = file.Close()
+		return ArtifactResult{}, fmt.Errorf("flush STL artifact: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return ArtifactResult{}, fmt.Errorf("close STL artifact: %w", err)
+	}
+
+	info, err := os.Stat(storagePath)
+	if err != nil {
+		return ArtifactResult{}, fmt.Errorf("stat STL artifact: %w", err)
 	}
 	result.SizeBytes = info.Size()
 
@@ -206,6 +294,146 @@ func appendOBJPlacement(writer *bufio.Writer, state *objWriteState, placement as
 	return nil
 }
 
+func appendSTLPlacement(writer *bufio.Writer, placement assembly.ResolvedPlacement) (int, error) {
+	switch placement.Asset.Format {
+	case modelasset.FormatOBJ:
+		return appendOBJAsSTL(writer, placement)
+	case modelasset.FormatSTL:
+		return appendASCIISTLPlacement(writer, placement)
+	default:
+		return 0, fmt.Errorf("asset %s has unsupported STL assembly format %s", placement.Asset.ID, placement.Asset.Format)
+	}
+}
+
+func appendOBJAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) (int, error) {
+	source, err := os.Open(placement.Asset.StoragePath)
+	if err != nil {
+		return 0, fmt.Errorf("read asset %s: %w", placement.Asset.ID, err)
+	}
+	defer source.Close()
+
+	vertices := make([][3]float64, 0)
+	triangleCount := 0
+
+	scanner := bufio.NewScanner(source)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 0 {
+			continue
+		}
+
+		switch fields[0] {
+		case "v":
+			vertex, err := parseVector(fields[1:])
+			if err != nil {
+				return triangleCount, fmt.Errorf("asset %s has invalid OBJ vertex: %w", placement.Asset.ID, err)
+			}
+			vertices = append(vertices, applyTransform(vertex, placement.WorldTransform, true))
+		case "f":
+			if len(fields) < 4 {
+				return triangleCount, fmt.Errorf("asset %s has OBJ face with fewer than 3 vertices", placement.Asset.ID)
+			}
+			indices := make([]int, 0, len(fields)-1)
+			for _, token := range fields[1:] {
+				index, err := parseOBJVertexIndex(token, len(vertices))
+				if err != nil {
+					return triangleCount, fmt.Errorf("asset %s has unsupported OBJ face token %q: %w", placement.Asset.ID, token, err)
+				}
+				indices = append(indices, index)
+			}
+			for index := 1; index < len(indices)-1; index++ {
+				if err := writeSTLFacet(writer, vertices[indices[0]], vertices[indices[index]], vertices[indices[index+1]]); err != nil {
+					return triangleCount, err
+				}
+				triangleCount++
+			}
+		default:
+			continue
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return triangleCount, fmt.Errorf("scan asset %s OBJ: %w", placement.Asset.ID, err)
+	}
+
+	return triangleCount, nil
+}
+
+func appendASCIISTLPlacement(writer *bufio.Writer, placement assembly.ResolvedPlacement) (int, error) {
+	source, err := os.Open(placement.Asset.StoragePath)
+	if err != nil {
+		return 0, fmt.Errorf("read asset %s: %w", placement.Asset.ID, err)
+	}
+	defer source.Close()
+
+	triangle := make([][3]float64, 0, 3)
+	triangleCount := 0
+
+	scanner := bufio.NewScanner(source)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		fields := strings.Fields(line)
+		if len(fields) == 0 || fields[0] != "vertex" {
+			continue
+		}
+
+		vertex, err := parseVector(fields[1:])
+		if err != nil {
+			return triangleCount, fmt.Errorf("asset %s has invalid STL vertex: %w", placement.Asset.ID, err)
+		}
+		triangle = append(triangle, applyTransform(vertex, placement.WorldTransform, true))
+		if len(triangle) == 3 {
+			if err := writeSTLFacet(writer, triangle[0], triangle[1], triangle[2]); err != nil {
+				return triangleCount, err
+			}
+			triangleCount++
+			triangle = triangle[:0]
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return triangleCount, fmt.Errorf("scan asset %s STL: %w", placement.Asset.ID, err)
+	}
+	if len(triangle) != 0 {
+		return triangleCount, fmt.Errorf("asset %s has incomplete ASCII STL triangle", placement.Asset.ID)
+	}
+	if triangleCount == 0 {
+		return 0, fmt.Errorf("asset %s has no ASCII STL triangles", placement.Asset.ID)
+	}
+
+	return triangleCount, nil
+}
+
+func writeSTLFacet(writer *bufio.Writer, a [3]float64, b [3]float64, c [3]float64) error {
+	normal := triangleNormal(a, b, c)
+	if _, err := fmt.Fprintf(writer, "  facet normal %.6f %.6f %.6f\n", normal[0], normal[1], normal[2]); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "    outer loop"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(writer, "      vertex %.6f %.6f %.6f\n", a[0], a[1], a[2]); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(writer, "      vertex %.6f %.6f %.6f\n", b[0], b[1], b[2]); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(writer, "      vertex %.6f %.6f %.6f\n", c[0], c[1], c[2]); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "    endloop"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(writer, "  endfacet"); err != nil {
+		return err
+	}
+	return nil
+}
+
 func parseVector(values []string) ([3]float64, error) {
 	if len(values) < 3 {
 		return [3]float64{}, fmt.Errorf("need 3 values")
@@ -267,6 +495,38 @@ func normalizeVector(vector [3]float64) [3]float64 {
 		return vector
 	}
 	return [3]float64{vector[0] / length, vector[1] / length, vector[2] / length}
+}
+
+func triangleNormal(a [3]float64, b [3]float64, c [3]float64) [3]float64 {
+	edgeAB := [3]float64{b[0] - a[0], b[1] - a[1], b[2] - a[2]}
+	edgeAC := [3]float64{c[0] - a[0], c[1] - a[1], c[2] - a[2]}
+	return normalizeVector([3]float64{
+		edgeAB[1]*edgeAC[2] - edgeAB[2]*edgeAC[1],
+		edgeAB[2]*edgeAC[0] - edgeAB[0]*edgeAC[2],
+		edgeAB[0]*edgeAC[1] - edgeAB[1]*edgeAC[0],
+	})
+}
+
+func parseOBJVertexIndex(token string, vertexCount int) (int, error) {
+	parts := strings.Split(token, "/")
+	if len(parts) == 0 || parts[0] == "" {
+		return 0, fmt.Errorf("missing vertex index")
+	}
+	value, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, err
+	}
+	if value == 0 {
+		return 0, fmt.Errorf("OBJ indices are 1-based")
+	}
+	if value < 0 {
+		value = vertexCount + value + 1
+	}
+	index := value - 1
+	if index < 0 || index >= vertexCount {
+		return 0, fmt.Errorf("vertex index %d is out of range", value)
+	}
+	return index, nil
 }
 
 func shiftFaceToken(token string, state *objWriteState) (string, error) {

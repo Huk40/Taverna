@@ -423,6 +423,7 @@ export default function App() {
       onCopyShareLink={() => void copyShareLink()}
       onCreateExport={() => void createExportJob()}
       onCreateOBJExport={() => void createExportJob("obj")}
+      onCreateSTLExport={() => void createExportJob("stl")}
       onDeleteModelAsset={(id) => void removeModelAsset(id)}
       onOpenProject={(id) => void openProject(id)}
       onProjectNameChange={setProjectName}

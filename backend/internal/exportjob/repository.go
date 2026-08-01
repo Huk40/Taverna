@@ -152,7 +152,7 @@ func buildFakeArtifact(projectID string, target string, format string, assemblyM
 		"assembly":          assemblySummary(assemblyManifest),
 		"assembly_manifest": assemblyManifest,
 		"artifact_file":     artifactFile,
-		"message":           "Export metadata with MVP OBJ assembly artifact when requested. Redis, MinIO, and the full mesh worker are intentionally not connected yet.",
+		"message":           "Export metadata with MVP OBJ/STL assembly artifacts when requested. Redis, MinIO, and the full mesh worker are intentionally not connected yet.",
 		"print_readiness": map[string]any{
 			"status": "metadata_ready",
 			"checks": []string{

@@ -158,7 +158,7 @@ Export endpoints:
 
 На текущем этапе Redis, MinIO и отдельный mesh worker намеренно не подключены. API создает job, сразу завершает его metadata, включает краткий assembly summary и полный `assembly_manifest` по uploaded assets, затем сохраняет историю export jobs проекта, чтобы зафиксировать будущий контракт.
 
-Для первого физического artifact pipeline backend поддерживает `format: "obj"`: он берет uploaded OBJ assets из assembly manifest, применяет рассчитанные `world_transform`, склеивает вершины/faces в один `.obj` и сохраняет файл в server storage. Для `.glb`, `.stl` и `.3mf` пока возвращается manifest-only artifact с предупреждением; конвертация этих форматов остается задачей будущего worker-а.
+Для первого физического artifact pipeline backend поддерживает `format: "obj"` и `format: "stl"`. OBJ export берет uploaded OBJ assets из assembly manifest, применяет рассчитанные `world_transform`, склеивает вершины/faces в один `.obj` и сохраняет файл в server storage. STL export создает ASCII `.stl`: uploaded STL перечитываются как facets, а простые OBJ placements триангулируются в STL facets с пересчитанными normals. Для `.glb` и `.3mf` пока возвращается manifest-only artifact с предупреждением; полноценная конвертация этих форматов остается задачей будущего worker-а.
 
 ## Share links
 
@@ -172,7 +172,7 @@ Export endpoints:
 - User model asset upload API с локальным server storage.
 - Assembly placements по точкам сборки (`right_hand`, `left_hand`, `head_mount`, `back_mount`, `base_mount`, `stage_anchor`).
 - Server-side assembly manifest API для будущего mesh worker.
-- MVP OBJ artifact builder: собирает uploaded OBJ placements в downloadable `.obj`.
+- MVP OBJ/STL artifact builder: собирает uploaded OBJ placements в downloadable `.obj`, а uploaded STL и triangulated OBJ placements - в downloadable ASCII `.stl`.
 - Compatibility validation на backend.
 - Print-readiness summary на frontend с динамическим максимумом `scale.mm`.
 - Three.js preview, который реагирует на species, body, clothing, gear, pose, stage, base, scale, material zones и uploaded assembly assets.
@@ -184,7 +184,7 @@ Export endpoints:
 
 ## Что не входит в этот этап
 
-- Реальная генерация STL, 3MF или GLB.
+- Полноценная генерация GLB/3MF и сложная STL-конвертация через mesh worker.
 - Blender worker или отдельный mesh worker service.
 - Redis очередь.
 - MinIO файловое хранилище.

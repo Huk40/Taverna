@@ -67,6 +67,7 @@ type EditorShellProps = {
   onCopyShareLink: () => void;
   onCreateExport: () => void;
   onCreateOBJExport: () => void;
+  onCreateSTLExport: () => void;
   onDeleteModelAsset: (id: string) => void;
   onOpenProject: (id: string) => void;
   onProjectNameChange: (value: string) => void;
@@ -109,6 +110,7 @@ export default function EditorShell({
   onCopyShareLink,
   onCreateExport,
   onCreateOBJExport,
+  onCreateSTLExport,
   onDeleteModelAsset,
   onOpenProject,
   onProjectNameChange,
@@ -199,6 +201,7 @@ export default function EditorShell({
             onCopyShareLink,
             onCreateExport,
             onCreateOBJExport,
+            onCreateSTLExport,
             onDeleteModelAsset,
             onOpenProject,
             onRefreshAssemblyManifest,
@@ -242,6 +245,7 @@ type InspectorProps = Pick<
   | "onCopyShareLink"
   | "onCreateExport"
   | "onCreateOBJExport"
+  | "onCreateSTLExport"
   | "onDeleteModelAsset"
   | "onOpenProject"
   | "onRefreshAssemblyManifest"
@@ -325,6 +329,7 @@ function renderInspector(props: InspectorProps) {
           onCopyShareLink={props.onCopyShareLink}
           onCreateExport={props.onCreateExport}
           onCreateOBJExport={props.onCreateOBJExport}
+          onCreateSTLExport={props.onCreateSTLExport}
           onRefreshAssemblyManifest={props.onRefreshAssemblyManifest}
           onSlotChange={props.onSlotChange}
         />
@@ -767,6 +772,7 @@ type ExportPanelProps = {
   onCopyShareLink: () => void;
   onCreateExport: () => void;
   onCreateOBJExport: () => void;
+  onCreateSTLExport: () => void;
   onRefreshAssemblyManifest: () => void;
   onSlotChange: (slot: SlotID, partID: string) => void;
 };
@@ -785,6 +791,7 @@ function ExportPanel({
   onCopyShareLink,
   onCreateExport,
   onCreateOBJExport,
+  onCreateSTLExport,
   onRefreshAssemblyManifest,
   onSlotChange,
 }: ExportPanelProps) {
@@ -810,6 +817,10 @@ function ExportPanel({
       <button className="wide-command" type="button" onClick={onCreateOBJExport} disabled={!selectedProjectId || isExporting}>
         <Boxes size={18} />
         Create OBJ assembly
+      </button>
+      <button className="wide-command" type="button" onClick={onCreateSTLExport} disabled={!selectedProjectId || isExporting}>
+        <Box size={18} />
+        Create STL assembly
       </button>
       {lastExport && (
         <div className="export-status">
