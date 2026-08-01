@@ -107,6 +107,7 @@ func assetRef(asset modelasset.ModelAsset) ModelAssetRef {
 		Format:      asset.Format,
 		SizeBytes:   asset.SizeBytes,
 		URL:         asset.URL,
+		Metadata:    asset.Metadata,
 		StoragePath: asset.StoragePath,
 	}
 }

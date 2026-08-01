@@ -27,14 +27,18 @@ func (r *Repository) Create(ctx context.Context, request CreateRequest) (ModelAs
 	if err != nil {
 		return ModelAsset{}, fmt.Errorf("marshal assembly points: %w", err)
 	}
+	metadata, err := json.Marshal(request.Metadata)
+	if err != nil {
+		return ModelAsset{}, fmt.Errorf("marshal geometry metadata: %w", err)
+	}
 
 	row := r.pool.QueryRow(ctx, `
 		INSERT INTO model_assets (
-			id, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points
+			id, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, metadata
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
-		RETURNING id::text, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, created_at, updated_at
-	`, request.ID, request.Label, request.Slot, request.AttachmentPoint, request.FileName, request.ContentType, request.Format, request.SizeBytes, request.StoragePath, string(points))
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb)
+		RETURNING id::text, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, metadata, created_at, updated_at
+	`, request.ID, request.Label, request.Slot, request.AttachmentPoint, request.FileName, request.ContentType, request.Format, request.SizeBytes, request.StoragePath, string(points), string(metadata))
 
 	return scanAsset(row)
 }
@@ -47,13 +51,13 @@ func (r *Repository) List(ctx context.Context, slot string) ([]ModelAsset, error
 
 	if slot == "" {
 		rows, err = r.pool.Query(ctx, `
-			SELECT id::text, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, created_at, updated_at
+			SELECT id::text, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, metadata, created_at, updated_at
 			FROM model_assets
 			ORDER BY updated_at DESC, created_at DESC
 		`)
 	} else {
 		rows, err = r.pool.Query(ctx, `
-			SELECT id::text, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, created_at, updated_at
+			SELECT id::text, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, metadata, created_at, updated_at
 			FROM model_assets
 			WHERE slot = $1
 			ORDER BY updated_at DESC, created_at DESC
@@ -81,7 +85,7 @@ func (r *Repository) List(ctx context.Context, slot string) ([]ModelAsset, error
 
 func (r *Repository) Get(ctx context.Context, id string) (ModelAsset, error) {
 	row := r.pool.QueryRow(ctx, `
-		SELECT id::text, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, created_at, updated_at
+		SELECT id::text, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, metadata, created_at, updated_at
 		FROM model_assets
 		WHERE id = $1
 	`, strings.TrimSpace(id))
@@ -102,7 +106,7 @@ func (r *Repository) Update(ctx context.Context, id string, request UpdateReques
 			assembly_points = $3::jsonb,
 			updated_at = NOW()
 		WHERE id = $1
-		RETURNING id::text, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, created_at, updated_at
+		RETURNING id::text, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, metadata, created_at, updated_at
 	`, strings.TrimSpace(id), request.Label, string(points))
 
 	return scanAsset(row)
@@ -158,8 +162,9 @@ type assetScanner interface {
 
 func scanAsset(scanner assetScanner) (ModelAsset, error) {
 	var (
-		asset     ModelAsset
-		rawPoints []byte
+		asset       ModelAsset
+		rawPoints   []byte
+		rawMetadata []byte
 	)
 	if err := scanner.Scan(
 		&asset.ID,
@@ -172,6 +177,7 @@ func scanAsset(scanner assetScanner) (ModelAsset, error) {
 		&asset.SizeBytes,
 		&asset.StoragePath,
 		&rawPoints,
+		&rawMetadata,
 		&asset.CreatedAt,
 		&asset.UpdatedAt,
 	); err != nil {
@@ -189,6 +195,12 @@ func scanAsset(scanner assetScanner) (ModelAsset, error) {
 	if asset.AssemblyPoints == nil {
 		asset.AssemblyPoints = []AssemblyPoint{}
 	}
+	if len(rawMetadata) > 0 {
+		if err := json.Unmarshal(rawMetadata, &asset.Metadata); err != nil {
+			return ModelAsset{}, fmt.Errorf("decode model asset metadata: %w", err)
+		}
+	}
+	asset.Metadata = normalizeGeometryMetadata(asset.Metadata)
 	asset.URL = "/api/model-assets/" + asset.ID + "/file"
 
 	return asset, nil
@@ -205,12 +217,25 @@ func normalizeCreateRequest(request CreateRequest) CreateRequest {
 	request.ContentType = strings.TrimSpace(request.ContentType)
 	request.Format = strings.TrimSpace(strings.ToLower(request.Format))
 	request.StoragePath = strings.TrimSpace(request.StoragePath)
+	request.Metadata = normalizeGeometryMetadata(request.Metadata)
 	return request
 }
 
 func normalizeUpdateRequest(request UpdateRequest) UpdateRequest {
 	request.Label = strings.TrimSpace(request.Label)
 	return request
+}
+
+func normalizeGeometryMetadata(metadata GeometryMetadata) GeometryMetadata {
+	metadata.Status = strings.TrimSpace(metadata.Status)
+	if metadata.Status == "" {
+		metadata.Status = "unknown"
+	}
+	metadata.Source = strings.TrimSpace(metadata.Source)
+	if metadata.Warnings == nil {
+		metadata.Warnings = []string{}
+	}
+	return metadata
 }
 
 func uniqueNonEmpty(ids []string) []string {

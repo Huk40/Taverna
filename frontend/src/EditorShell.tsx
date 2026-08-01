@@ -32,6 +32,7 @@ import type {
   CharacterConfig,
   EditorCategory,
   ExportJob,
+  GeometryMetadata,
   ModelAsset,
   ModelAssetAssemblyPoint,
   Part,
@@ -596,6 +597,7 @@ function AssetPanel({
               <span>{asset.slot} / {asset.attachment_point}</span>
               <span>{formatBytes(asset.size_bytes)}</span>
             </span>
+            <AssetGeometrySummary metadata={asset.metadata} />
             <span className="part-card-assets">Anchors: {asset.assembly_points.length ? asset.assembly_points.map((point) => point.label || point.id).join(", ") : "origin"}</span>
             {editingAssetID === asset.id ? (
               <div className="asset-edit-panel">
@@ -633,6 +635,46 @@ function AssetPanel({
         ))}
         {modelAssets.length === 0 && <p className="empty-state">Upload a model to start assembling custom parts</p>}
       </div>
+    </div>
+  );
+}
+
+type AssetGeometrySummaryProps = {
+  metadata?: GeometryMetadata;
+};
+
+function AssetGeometrySummary({ metadata }: AssetGeometrySummaryProps) {
+  const current: GeometryMetadata = metadata ?? { status: "unknown", warnings: [] };
+  const bounds = current.status === "parsed" ? current.bounds : undefined;
+
+  return (
+    <div className="geometry-summary">
+      <div className="readiness-heading">
+        <strong>Geometry</strong>
+        <span className={metadataStatusClass(current.status)}>{geometryStatusLabel(current)}</span>
+      </div>
+      {bounds ? (
+        <div className="geometry-grid">
+          <span>
+            Size
+            <strong>{formatVector(bounds.size)}</strong>
+          </span>
+          <span>
+            Center
+            <strong>{formatVector(bounds.center)}</strong>
+          </span>
+          <span>
+            Vertices
+            <strong>{formatCount(current.vertex_count)}</strong>
+          </span>
+          <span>
+            Triangles
+            <strong>{formatCount(current.triangle_count)}</strong>
+          </span>
+        </div>
+      ) : (
+        <small>{current.warnings?.[0] ?? "Geometry metadata is not available yet"}</small>
+      )}
     </div>
   );
 }
@@ -732,6 +774,7 @@ function AssemblyPanel({
               <span>{asset.slot}</span>
               <span>{asset.attachment_point}</span>
             </span>
+            <span className="part-card-assets">{geometryCompactSummary(asset.metadata)}</span>
           </button>
         ))}
         {modelAssets.length === 0 && <p className="empty-state">No uploaded models yet</p>}
@@ -753,6 +796,7 @@ function AssemblyPanel({
                   <X size={15} />
                 </button>
               </div>
+              {asset && <AssetGeometrySummary metadata={asset.metadata} />}
               <label className="field">
                 <span>Asset anchor</span>
                 <select
@@ -1194,6 +1238,58 @@ function formatBytes(value: number): string {
     return `${(value / 1024).toFixed(1)} KB`;
   }
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function geometryCompactSummary(metadata?: GeometryMetadata): string {
+  if (!metadata) {
+    return "Geometry metadata pending";
+  }
+  if (metadata.status === "parsed") {
+    const triangles = formatCount(metadata.triangle_count);
+    const size = metadata.bounds ? formatVector(metadata.bounds.size) : "bounds pending";
+    return `${triangles} triangles / ${size}`;
+  }
+  return geometryStatusLabel(metadata);
+}
+
+function geometryStatusLabel(metadata: GeometryMetadata): string {
+  switch (metadata.status) {
+    case "parsed":
+      return metadata.source ? metadata.source.replace("_", " ").toUpperCase() : "Parsed";
+    case "stored":
+      return "Stored";
+    case "empty":
+      return "Empty";
+    case "error":
+      return "Inspect error";
+    default:
+      return "Unknown";
+  }
+}
+
+function metadataStatusClass(status: GeometryMetadata["status"]): string {
+  return status === "parsed" ? "readiness-ok" : "readiness-warning";
+}
+
+function formatCount(value: number | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : "0";
+}
+
+function formatVector(value: Vector3Tuple): string {
+  return value.map((item) => formatGeometryNumber(item)).join(" x ");
+}
+
+function formatGeometryNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  if (Math.abs(value) >= 100) {
+    return value.toFixed(0);
+  }
+  if (Math.abs(value) >= 10) {
+    return value.toFixed(1);
+  }
+  return value.toFixed(2);
 }
 
 function isSlotCategory(category: EditorCategory): category is SlotID {

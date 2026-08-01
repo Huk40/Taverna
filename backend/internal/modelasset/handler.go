@@ -263,6 +263,10 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file size is outside allowed range"})
 		return
 	}
+	metadata := InspectGeometry(storagePath, format)
+	if metadata.Status == "error" {
+		h.logger.Warn("model asset geometry inspection failed", "file_name", originalName, "format", format, "warnings", metadata.Warnings)
+	}
 
 	request := CreateRequest{
 		ID:              id,
@@ -275,6 +279,7 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		SizeBytes:       written,
 		StoragePath:     storagePath,
 		AssemblyPoints:  points,
+		Metadata:        metadata,
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)

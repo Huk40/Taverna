@@ -32,14 +32,15 @@ type ResolvedPlacement struct {
 }
 
 type ModelAssetRef struct {
-	ID          string `json:"id"`
-	Label       string `json:"label"`
-	FileName    string `json:"file_name"`
-	ContentType string `json:"content_type"`
-	Format      string `json:"format"`
-	SizeBytes   int64  `json:"size_bytes"`
-	URL         string `json:"url"`
-	StoragePath string `json:"-"`
+	ID          string                      `json:"id"`
+	Label       string                      `json:"label"`
+	FileName    string                      `json:"file_name"`
+	ContentType string                      `json:"content_type"`
+	Format      string                      `json:"format"`
+	SizeBytes   int64                       `json:"size_bytes"`
+	URL         string                      `json:"url"`
+	Metadata    modelasset.GeometryMetadata `json:"metadata"`
+	StoragePath string                      `json:"-"`
 }
 
 type Transform struct {

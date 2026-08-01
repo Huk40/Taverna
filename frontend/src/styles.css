@@ -483,6 +483,40 @@ input[type="color"] {
   overflow-wrap: anywhere;
 }
 
+.geometry-summary {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #10161d;
+}
+
+.geometry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.geometry-grid span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.geometry-grid strong {
+  color: #f4f7fb;
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.geometry-summary small {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
 .color-editor-grid {
   display: grid;
   gap: 10px;

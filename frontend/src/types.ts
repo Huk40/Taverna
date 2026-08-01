@@ -137,6 +137,23 @@ export type ModelAssetAssemblyPoint = {
   rotation: Vector3Tuple;
 };
 
+export type GeometryBounds = {
+  min: Vector3Tuple;
+  max: Vector3Tuple;
+  size: Vector3Tuple;
+  center: Vector3Tuple;
+};
+
+export type GeometryMetadata = {
+  status: "parsed" | "stored" | "empty" | "error" | "unknown";
+  source?: string;
+  bounds?: GeometryBounds;
+  vertex_count?: number;
+  face_count?: number;
+  triangle_count?: number;
+  warnings: string[];
+};
+
 export type ModelAsset = {
   id: string;
   label: string;
@@ -148,6 +165,7 @@ export type ModelAsset = {
   size_bytes: number;
   url: string;
   assembly_points: ModelAssetAssemblyPoint[];
+  metadata: GeometryMetadata;
   created_at: string;
   updated_at: string;
 };
@@ -179,6 +197,7 @@ export type ResolvedAssemblyPlacement = {
     format: ModelAsset["format"];
     size_bytes: number;
     url: string;
+    metadata: GeometryMetadata;
   };
   asset_points: ModelAssetAssemblyPoint[];
   socket_transform: AssemblyTransform;
