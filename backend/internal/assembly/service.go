@@ -57,6 +57,7 @@ func (s *Service) Manifest(ctx context.Context, projectID string) (Manifest, err
 	}
 
 	bodyHeight := bodyHeightFor(config.Body)
+	manifestBounds := assemblyBoundsAccumulator{}
 	for _, placement := range config.Assembly.Placements {
 		asset, err := s.assets.Get(ctx, placement.AssetID)
 		if err != nil {
@@ -77,6 +78,10 @@ func (s *Service) Manifest(ctx context.Context, projectID string) (Manifest, err
 		socket := socketTransform(placement.AttachmentPoint, bodyHeight, config.Pose)
 		user := userTransform(placement.Transform)
 		world := composeWorldTransform(socket, user, assetPoint, characterScale)
+		worldBounds := transformGeometryBounds(asset.Metadata.Bounds, world)
+		if worldBounds != nil {
+			manifestBounds.AddBounds(*worldBounds)
+		}
 		if asset.Format == modelasset.Format3MF {
 			manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("asset %s is 3MF and currently resolves as a manifest-only placement", asset.ID))
 		}
@@ -92,8 +97,10 @@ func (s *Service) Manifest(ctx context.Context, projectID string) (Manifest, err
 			SocketTransform: socket,
 			UserTransform:   user,
 			WorldTransform:  world,
+			WorldBounds:     worldBounds,
 		})
 	}
+	manifest.Bounds = manifestBounds.Bounds()
 
 	return manifest, nil
 }
@@ -226,6 +233,105 @@ func composeWorldTransform(socket Transform, user Transform, assetPoint modelass
 		},
 		Rotation: rotation,
 		Scale:    round(scale),
+	}
+}
+
+func transformGeometryBounds(bounds *modelasset.GeometryBounds, transform Transform) *modelasset.GeometryBounds {
+	if bounds == nil {
+		return nil
+	}
+
+	accumulator := assemblyBoundsAccumulator{}
+	for _, corner := range geometryBoundsCorners(*bounds) {
+		accumulator.AddVector(applyTransform(corner, transform))
+	}
+	return accumulator.Bounds()
+}
+
+func geometryBoundsCorners(bounds modelasset.GeometryBounds) [8][3]float64 {
+	min := bounds.Min
+	max := bounds.Max
+	return [8][3]float64{
+		{min[0], min[1], min[2]},
+		{min[0], min[1], max[2]},
+		{min[0], max[1], min[2]},
+		{min[0], max[1], max[2]},
+		{max[0], min[1], min[2]},
+		{max[0], min[1], max[2]},
+		{max[0], max[1], min[2]},
+		{max[0], max[1], max[2]},
+	}
+}
+
+func applyTransform(vector [3]float64, transform Transform) [3]float64 {
+	x := vector[0] * transform.Scale
+	y := vector[1] * transform.Scale
+	z := vector[2] * transform.Scale
+
+	x, y, z = rotateX(x, y, z, degreesToRadians(transform.Rotation[0]))
+	x, y, z = rotateY(x, y, z, degreesToRadians(transform.Rotation[1]))
+	x, y, z = rotateZ(x, y, z, degreesToRadians(transform.Rotation[2]))
+
+	return [3]float64{
+		round(x + transform.Position[0]),
+		round(y + transform.Position[1]),
+		round(z + transform.Position[2]),
+	}
+}
+
+type assemblyBoundsAccumulator struct {
+	min modelasset.Vector3
+	max modelasset.Vector3
+	has bool
+}
+
+func (bounds *assemblyBoundsAccumulator) AddBounds(next modelasset.GeometryBounds) {
+	bounds.AddVector([3]float64{next.Min[0], next.Min[1], next.Min[2]})
+	bounds.AddVector([3]float64{next.Max[0], next.Max[1], next.Max[2]})
+}
+
+func (bounds *assemblyBoundsAccumulator) AddVector(vector [3]float64) {
+	if !bounds.has {
+		bounds.min = modelasset.Vector3{vector[0], vector[1], vector[2]}
+		bounds.max = modelasset.Vector3{vector[0], vector[1], vector[2]}
+		bounds.has = true
+		return
+	}
+	for index := 0; index < 3; index++ {
+		bounds.min[index] = math.Min(bounds.min[index], vector[index])
+		bounds.max[index] = math.Max(bounds.max[index], vector[index])
+	}
+}
+
+func (bounds assemblyBoundsAccumulator) Bounds() *modelasset.GeometryBounds {
+	if !bounds.has {
+		return nil
+	}
+
+	size := modelasset.Vector3{
+		round(bounds.max[0] - bounds.min[0]),
+		round(bounds.max[1] - bounds.min[1]),
+		round(bounds.max[2] - bounds.min[2]),
+	}
+	center := modelasset.Vector3{
+		round((bounds.min[0] + bounds.max[0]) / 2),
+		round((bounds.min[1] + bounds.max[1]) / 2),
+		round((bounds.min[2] + bounds.max[2]) / 2),
+	}
+
+	return &modelasset.GeometryBounds{
+		Min:    roundVector(bounds.min),
+		Max:    roundVector(bounds.max),
+		Size:   size,
+		Center: center,
+	}
+}
+
+func roundVector(vector modelasset.Vector3) modelasset.Vector3 {
+	return modelasset.Vector3{
+		round(vector[0]),
+		round(vector[1]),
+		round(vector[2]),
 	}
 }
 

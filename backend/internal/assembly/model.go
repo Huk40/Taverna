@@ -7,15 +7,16 @@ import (
 )
 
 type Manifest struct {
-	SchemaVersion  int                 `json:"schema_version"`
-	ProjectID      string              `json:"project_id"`
-	GeneratedAt    time.Time           `json:"generated_at"`
-	ScaleMM        int                 `json:"scale_mm"`
-	CharacterScale float64             `json:"character_scale"`
-	Unit           string              `json:"unit"`
-	Selections     map[string]string   `json:"selections"`
-	Placements     []ResolvedPlacement `json:"placements"`
-	Warnings       []string            `json:"warnings"`
+	SchemaVersion  int                        `json:"schema_version"`
+	ProjectID      string                     `json:"project_id"`
+	GeneratedAt    time.Time                  `json:"generated_at"`
+	ScaleMM        int                        `json:"scale_mm"`
+	CharacterScale float64                    `json:"character_scale"`
+	Unit           string                     `json:"unit"`
+	Selections     map[string]string          `json:"selections"`
+	Placements     []ResolvedPlacement        `json:"placements"`
+	Bounds         *modelasset.GeometryBounds `json:"bounds,omitempty"`
+	Warnings       []string                   `json:"warnings"`
 }
 
 type ResolvedPlacement struct {
@@ -29,6 +30,7 @@ type ResolvedPlacement struct {
 	SocketTransform Transform                  `json:"socket_transform"`
 	UserTransform   Transform                  `json:"user_transform"`
 	WorldTransform  Transform                  `json:"world_transform"`
+	WorldBounds     *modelasset.GeometryBounds `json:"world_bounds,omitempty"`
 }
 
 type ModelAssetRef struct {

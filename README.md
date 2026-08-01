@@ -131,6 +131,8 @@ Model asset endpoints:
 
 `config.assembly.placements[].asset_point_id` selects the local anchor of the uploaded model. The server aligns that asset anchor to the character `attachment_point` and includes the resolved `asset_point` plus final `world_transform` in the assembly manifest.
 
+When uploaded OBJ/STL assets have parsed geometry metadata, the assembly manifest also includes per-placement `world_bounds` and combined manifest `bounds`, both computed from the resolved `world_transform`.
+
 Uploaded model asset responses include `metadata` with server-inspected geometry for OBJ and ASCII/binary STL files: parser status, source type, bounds (`min`, `max`, `size`, `center`), vertex count, face count, triangle count, and warnings. GLB, GLTF, and 3MF are stored and exposed through the same API, but server-side geometry inspection for those formats is intentionally deferred to the future mesh worker.
 
 ## Assembly Manifest API
@@ -181,6 +183,7 @@ Export endpoints:
 - Server-inspected geometry metadata for uploaded OBJ and ASCII/binary STL assets.
 - Assembly placements по точкам сборки (`right_hand`, `left_hand`, `head_mount`, `back_mount`, `base_mount`, `stage_anchor`).
 - Server-side assembly manifest API для будущего mesh worker.
+- Server-side assembled bounds in the assembly manifest for parsed uploaded assets.
 - MVP OBJ/STL artifact builder: собирает uploaded OBJ placements в downloadable `.obj`, а uploaded ASCII/binary STL и triangulated OBJ placements - в downloadable ASCII `.stl`.
 - Compatibility validation на backend.
 - Print-readiness summary на frontend с динамическим максимумом `scale.mm`.

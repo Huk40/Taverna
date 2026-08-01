@@ -203,6 +203,7 @@ export type ResolvedAssemblyPlacement = {
   socket_transform: AssemblyTransform;
   user_transform: AssemblyTransform;
   world_transform: AssemblyTransform;
+  world_bounds?: GeometryBounds;
 };
 
 export type AssemblyManifest = {
@@ -214,6 +215,7 @@ export type AssemblyManifest = {
   unit: string;
   selections: Record<string, string>;
   placements: ResolvedAssemblyPlacement[];
+  bounds?: GeometryBounds;
   warnings: string[];
 };
 

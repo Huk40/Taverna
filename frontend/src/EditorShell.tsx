@@ -1090,6 +1090,18 @@ function AssemblyManifestPanel({ manifest, selectedProjectId, onRefresh }: Assem
               Generated
               <strong>{new Date(manifest.generated_at).toLocaleTimeString()}</strong>
             </span>
+            <span>
+              Bounds
+              <strong>{manifest.bounds ? formatVector(manifest.bounds.size) : "pending"}</strong>
+            </span>
+            <span>
+              Center
+              <strong>{manifest.bounds ? formatVector(manifest.bounds.center) : "pending"}</strong>
+            </span>
+            <span>
+              Bounded
+              <strong>{manifest.placements.filter((placement) => placement.world_bounds).length}</strong>
+            </span>
           </div>
           {manifest.warnings.length > 0 && (
             <small className="disabled-reason">
