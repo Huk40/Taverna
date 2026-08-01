@@ -166,6 +166,53 @@ func (r *Repository) ReferencingProjects(ctx context.Context, id string) ([]Proj
 	return references, nil
 }
 
+func (r *Repository) MissingAnchorReferences(ctx context.Context, assetID string, allowedPointIDs []string) ([]AnchorReference, error) {
+	assetID = strings.TrimSpace(assetID)
+	if assetID == "" {
+		return nil, nil
+	}
+	allowed := uniqueNonEmpty(allowedPointIDs)
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT
+			p.id::text,
+			p.name,
+			COALESCE(placement->>'id', ''),
+			COALESCE(placement->>'asset_point_id', '')
+		FROM projects p
+		CROSS JOIN LATERAL jsonb_array_elements(
+			CASE
+				WHEN jsonb_typeof(p.config->'assembly'->'placements') = 'array'
+				THEN p.config->'assembly'->'placements'
+				ELSE '[]'::jsonb
+			END
+		) AS placement
+		WHERE placement->>'asset_id' = $1
+			AND COALESCE(NULLIF(BTRIM(placement->>'asset_point_id'), ''), '') <> ''
+			AND NOT (placement->>'asset_point_id' = ANY($2::text[]))
+		ORDER BY p.updated_at DESC, p.created_at DESC
+		LIMIT 20
+	`, assetID, allowed)
+	if err != nil {
+		return nil, fmt.Errorf("query project references for missing model asset anchors: %w", err)
+	}
+	defer rows.Close()
+
+	references := make([]AnchorReference, 0)
+	for rows.Next() {
+		var reference AnchorReference
+		if err := rows.Scan(&reference.ProjectID, &reference.ProjectName, &reference.PlacementID, &reference.AssetPointID); err != nil {
+			return nil, fmt.Errorf("scan missing model asset anchor reference: %w", err)
+		}
+		references = append(references, reference)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read missing model asset anchor references: %w", err)
+	}
+
+	return references, nil
+}
+
 func (r *Repository) MissingIDs(ctx context.Context, ids []string) ([]string, error) {
 	unique := uniqueNonEmpty(ids)
 	if len(unique) == 0 {

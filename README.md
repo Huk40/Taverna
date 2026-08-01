@@ -122,7 +122,7 @@ Model asset endpoints:
 - `POST /api/model-assets`: multipart upload поля `file`, `label`, `slot`, `attachment_point`.
 - `assembly_points`: optional multipart field with JSON local anchors for the uploaded model, for example `[{"id":"grip","label":"Grip","position":[0,0,0],"rotation":[0,0,0]}]`.
 - `GET /api/model-assets/{id}`: получить metadata одной модели.
-- `PUT /api/model-assets/{id}`: обновить `label` и/или `assembly_points` без повторной загрузки файла.
+- `PUT /api/model-assets/{id}`: обновить `label` и/или `assembly_points` без повторной загрузки файла. Если новая версия удаляет или переименовывает anchor id, который уже указан в сохраненных `projects.config.assembly.placements`, backend возвращает `409 Conflict` со списком зависимых placements.
 - `GET /api/model-assets/{id}/file`: получить файл модели для Three.js preview.
 - `DELETE /api/model-assets/{id}`: удалить metadata и файл. Если asset уже используется в сохраненных `projects.config.assembly.placements`, backend возвращает `409 Conflict`, чтобы не сломать server assembly manifest/export у существующих проектов.
 - `GET /api/model-assets/assembly-points`: список поддержанных target points для сборки.

@@ -171,6 +171,18 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request, id string) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
+		references, err := h.repo.MissingAnchorReferences(ctx, id, assemblyPointIDs(points))
+		if err != nil {
+			h.serverError(w, "check model asset anchor project references", err)
+			return
+		}
+		if len(references) > 0 {
+			writeJSON(w, http.StatusConflict, map[string]any{
+				"error":      "model asset anchors are used by saved projects",
+				"references": references,
+			})
+			return
+		}
 	}
 
 	asset, err := h.repo.Update(ctx, id, UpdateRequest{
@@ -424,6 +436,14 @@ func validateAssemblyPointVector(vector Vector3, min float64, max float64) error
 		}
 	}
 	return nil
+}
+
+func assemblyPointIDs(points []AssemblyPoint) []string {
+	ids := make([]string, 0, len(points))
+	for _, point := range points {
+		ids = append(ids, point.ID)
+	}
+	return ids
 }
 
 func formatForFileName(fileName string) (string, bool) {

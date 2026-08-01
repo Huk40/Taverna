@@ -58,6 +58,13 @@ type ProjectReference struct {
 	Name string `json:"name"`
 }
 
+type AnchorReference struct {
+	ProjectID    string `json:"project_id"`
+	ProjectName  string `json:"project_name"`
+	PlacementID  string `json:"placement_id"`
+	AssetPointID string `json:"asset_point_id"`
+}
+
 type CreateRequest struct {
 	ID              string
 	Label           string
