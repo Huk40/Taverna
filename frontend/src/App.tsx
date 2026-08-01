@@ -11,6 +11,7 @@ import {
   listModelAssets,
   listProjectExports,
   listProjects,
+  previewAssembly,
   updateModelAsset,
   updateProject,
   uploadModelAsset,
@@ -398,15 +399,16 @@ export default function App() {
   }
 
   async function refreshAssemblyManifest() {
-    if (!selectedProjectId) {
-      setStatus("Сначала сохраните проект");
+    if (!catalog) {
+      setStatus("Каталог еще загружается");
       return;
     }
     try {
-      const manifest = await syncAssemblyManifest(selectedProjectId);
-      setStatus(`Assembly manifest: ${manifest.placements.length} placements`);
+      const manifest = await previewAssembly(normalizeConfig(config, catalog));
+      setAssemblyManifest(manifest);
+      setStatus(`Assembly preview: ${manifest.placements.length} placements`);
     } catch (error) {
-      setStatus(`Ошибка assembly manifest: ${getErrorMessage(error)}`);
+      setStatus(`Ошибка assembly preview: ${getErrorMessage(error)}`);
     }
   }
 

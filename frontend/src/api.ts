@@ -89,6 +89,13 @@ export function getProjectAssembly(id: string): Promise<AssemblyManifest> {
   return request<AssemblyManifest>(`/api/projects/${id}/assembly`);
 }
 
+export function previewAssembly(config: CharacterConfig): Promise<AssemblyManifest> {
+  return request<AssemblyManifest>("/api/assembly/preview", {
+    method: "POST",
+    body: JSON.stringify({ config }),
+  });
+}
+
 export function createProject(payload: ProjectPayload): Promise<Project> {
   return request<Project>("/api/projects", {
     method: "POST",

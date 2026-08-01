@@ -1,9 +1,11 @@
 package assembly
 
 import (
+	"context"
 	"errors"
 	"testing"
 
+	"taverna/backend/internal/catalog"
 	"taverna/backend/internal/modelasset"
 )
 
@@ -167,5 +169,27 @@ func TestResolveAssetPointRejectsUnknownRequestedPoint(t *testing.T) {
 	_, err := resolveAssetPoint(asset, "missing")
 	if !errors.Is(err, ErrInvalidAssembly) {
 		t.Fatalf("expected ErrInvalidAssembly, got %v", err)
+	}
+}
+
+func TestManifestForConfigBuildsPreviewWithoutSavedProject(t *testing.T) {
+	catalogService, err := catalog.NewService()
+	if err != nil {
+		t.Fatalf("catalog.NewService() error = %v", err)
+	}
+	service := NewService(nil, nil, catalogService)
+
+	manifest, err := service.ManifestForConfig(context.Background(), "", catalogService.Catalog().Defaults)
+	if err != nil {
+		t.Fatalf("ManifestForConfig() error = %v", err)
+	}
+	if manifest.ProjectID != "preview" {
+		t.Fatalf("project id = %q", manifest.ProjectID)
+	}
+	if manifest.SchemaVersion != 1 {
+		t.Fatalf("schema version = %d", manifest.SchemaVersion)
+	}
+	if len(manifest.Placements) != 0 {
+		t.Fatalf("placements = %d", len(manifest.Placements))
 	}
 }

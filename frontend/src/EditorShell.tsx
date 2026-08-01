@@ -1232,7 +1232,7 @@ function AssemblyManifestPanel({ manifest, selectedProjectId, onRefresh }: Assem
     <div className="manifest-panel">
       <div className="readiness-heading">
         <strong>Server assembly</strong>
-        <button className="icon-button small" type="button" onClick={onRefresh} disabled={!selectedProjectId} title="Refresh assembly manifest">
+        <button className="icon-button small" type="button" onClick={onRefresh} title="Preview current assembly manifest">
           <RefreshCw size={15} />
         </button>
       </div>
@@ -1312,7 +1312,7 @@ function AssemblyManifestPanel({ manifest, selectedProjectId, onRefresh }: Assem
           )}
         </>
       ) : (
-        <p className="empty-state">{selectedProjectId ? "Save or refresh to build server manifest" : "Save the project to build server manifest"}</p>
+        <p className="empty-state">{selectedProjectId ? "Save or refresh to build server manifest" : "Refresh to preview current assembly before saving"}</p>
       )}
     </div>
   );

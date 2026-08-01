@@ -39,14 +39,24 @@ func (s *Service) Manifest(ctx context.Context, projectID string) (Manifest, err
 	if err != nil {
 		return Manifest{}, fmt.Errorf("%w: %v", ErrInvalidAssembly, err)
 	}
+
+	return s.ManifestForConfig(ctx, storedProject.ID, config)
+}
+
+func (s *Service) ManifestForConfig(ctx context.Context, projectID string, config catalog.CharacterConfig) (Manifest, error) {
 	if err := s.catalog.ValidateConfig(config); err != nil {
 		return Manifest{}, fmt.Errorf("%w: %v", ErrInvalidAssembly, err)
+	}
+
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		projectID = "preview"
 	}
 
 	characterScale := clamp(float64(config.Scale.MM)/32, 0.75, 1.5)
 	manifest := Manifest{
 		SchemaVersion:  1,
-		ProjectID:      storedProject.ID,
+		ProjectID:      projectID,
 		GeneratedAt:    time.Now().UTC(),
 		ScaleMM:        config.Scale.MM,
 		CharacterScale: characterScale,

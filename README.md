@@ -45,6 +45,7 @@ Endpoints:
 - `GET /api/projects`: получить список проектов.
 - `GET /api/projects/{id}`: получить один проект.
 - `GET /api/projects/{id}/assembly`: получить server-side assembly manifest для сохраненной конфигурации.
+- `POST /api/assembly/preview`: получить server-side assembly manifest для текущего unsaved `config`.
 - `PUT /api/projects/{id}`: обновить проект.
 - `DELETE /api/projects/{id}`: удалить проект.
 
@@ -150,6 +151,8 @@ Uploaded model asset responses include `metadata` with server-inspected geometry
 - socket transform точки сборки;
 - пользовательский transform placement-а;
 - итоговый `world_transform`, который будущий mesh worker сможет использовать для сборки GLB/STL/3MF.
+
+`POST /api/assembly/preview` принимает `{ "config": CharacterConfig }` и возвращает такой же manifest с `project_id: "preview"`, чтобы frontend мог проверить текущую сборку по точкам до сохранения проекта.
 
 Этот endpoint не генерирует новый mesh-файл сам по себе, но фиксирует серверный контракт сборки: какой пользовательский файл, в какой attachment point и с каким transform должен быть поставлен.
 

@@ -44,6 +44,7 @@ func NewRouter(projects *project.Handler, catalogHandler *catalog.Handler, expor
 	mux.HandleFunc("/api/catalog/slots", catalogHandler.Slots)
 	mux.HandleFunc("/api/catalog/parts", catalogHandler.Parts)
 	mux.HandleFunc("/api/catalog/rules", catalogHandler.Rules)
+	mux.HandleFunc("/api/assembly/preview", assemblyHandler.PreviewAssembly)
 	mux.HandleFunc("/api/model-assets", modelAssets.Collection)
 	mux.HandleFunc("/api/model-assets/assembly-points", modelAssets.AssemblyPoints)
 	mux.HandleFunc("/api/model-assets/", modelAssets.Item)
