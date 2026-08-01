@@ -192,6 +192,7 @@ export default function App() {
       setStatus("3D-модель удалена");
     } catch (error) {
       setStatus(`Ошибка удаления 3D-модели: ${getErrorMessage(error)}`);
+      throw error;
     }
   }
 
@@ -440,7 +441,7 @@ export default function App() {
       onCreateExport={() => void createExportJob()}
       onCreateOBJExport={() => void createExportJob("obj")}
       onCreateSTLExport={() => void createExportJob("stl")}
-      onDeleteModelAsset={(id) => void removeModelAsset(id)}
+      onDeleteModelAsset={removeModelAsset}
       onOpenProject={(id) => void openProject(id)}
       onProjectNameChange={setProjectName}
       onRefreshAssemblyManifest={() => void refreshAssemblyManifest()}

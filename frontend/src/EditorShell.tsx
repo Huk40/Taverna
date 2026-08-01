@@ -73,7 +73,7 @@ type EditorShellProps = {
   onCreateExport: () => void;
   onCreateOBJExport: () => void;
   onCreateSTLExport: () => void;
-  onDeleteModelAsset: (id: string) => void;
+  onDeleteModelAsset: (id: string) => Promise<void>;
   onOpenProject: (id: string) => void;
   onProjectNameChange: (value: string) => void;
   onRefreshAssemblyManifest: () => void;
@@ -467,7 +467,7 @@ type AssetPanelProps = {
   isUploadingAsset: boolean;
   modelAssets: ModelAsset[];
   onAddAssemblyPlacement: (asset: ModelAsset) => void;
-  onDeleteModelAsset: (id: string) => void;
+  onDeleteModelAsset: (id: string) => Promise<void>;
   onUpdateModelAsset: (id: string, label: string, assemblyPoints: ModelAssetAssemblyPoint[]) => Promise<void>;
   onUploadAsset: (file: File, label: string, slot: SlotID, attachmentPoint: string, assemblyPoints: ModelAssetAssemblyPoint[]) => void;
 };
@@ -492,6 +492,8 @@ function AssetPanel({
   const [editLabel, setEditLabel] = useState("");
   const [editAnchors, setEditAnchors] = useState<ModelAssetAssemblyPoint[]>(() => [defaultUploadAnchor(1)]);
   const [assetEditNotice, setAssetEditNotice] = useState<AssetEditNotice | null>(null);
+  const [assetDeleteNotice, setAssetDeleteNotice] = useState<AssetDeleteNotice | null>(null);
+  const [deletingAssetID, setDeletingAssetID] = useState<string | null>(null);
   const targetsForSlot = assemblyTargets.filter((target) => target.slot === slot);
   const selectedAttachmentPoint = targetsForSlot.some((target) => target.id === attachmentPoint)
     ? attachmentPoint
@@ -513,6 +515,7 @@ function AssetPanel({
     setEditLabel(asset.label);
     setEditAnchors(asset.assembly_points.length ? cloneAnchors(asset.assembly_points) : [defaultUploadAnchor(1)]);
     setAssetEditNotice(null);
+    setAssetDeleteNotice(null);
   }
 
   function cancelEditingAsset() {
@@ -520,6 +523,7 @@ function AssetPanel({
     setEditLabel("");
     setEditAnchors([defaultUploadAnchor(1)]);
     setAssetEditNotice(null);
+    setAssetDeleteNotice(null);
   }
 
   async function saveEditingAsset(asset: ModelAsset) {
@@ -528,6 +532,18 @@ function AssetPanel({
       cancelEditingAsset();
     } catch (error) {
       setAssetEditNotice(assetEditNoticeForError(asset.id, error));
+    }
+  }
+
+  async function deleteAsset(asset: ModelAsset) {
+    setDeletingAssetID(asset.id);
+    setAssetDeleteNotice(null);
+    try {
+      await onDeleteModelAsset(asset.id);
+    } catch (error) {
+      setAssetDeleteNotice(assetDeleteNoticeForError(asset.id, error));
+    } finally {
+      setDeletingAssetID((current) => (current === asset.id ? null : current));
     }
   }
 
@@ -646,11 +662,18 @@ function AssetPanel({
                   <Ruler size={16} />
                   Edit anchors
                 </button>
-                <button className="delete-button" type="button" onClick={() => onDeleteModelAsset(asset.id)} title="Delete model asset">
+                <button
+                  className="delete-button"
+                  type="button"
+                  onClick={() => void deleteAsset(asset)}
+                  disabled={deletingAssetID === asset.id}
+                  title="Delete model asset"
+                >
                   <Trash2 size={16} />
                 </button>
               </div>
             )}
+            {assetDeleteNotice?.assetID === asset.id && <AssetDeleteNoticePanel notice={assetDeleteNotice} />}
           </article>
         ))}
         {modelAssets.length === 0 && <p className="empty-state">Upload a model to start assembling custom parts</p>}
@@ -673,6 +696,18 @@ type AssetAnchorConflictReference = {
   assetPointID: string;
 };
 
+type AssetDeleteNotice = {
+  assetID: string;
+  title: string;
+  detail: string;
+  projects: AssetProjectReference[];
+};
+
+type AssetProjectReference = {
+  id: string;
+  name: string;
+};
+
 type AssetEditNoticePanelProps = {
   notice: AssetEditNotice;
 };
@@ -693,6 +728,32 @@ function AssetEditNoticePanel({ notice }: AssetEditNoticePanelProps) {
               <code>
                 {reference.placementID} / {reference.assetPointID}
               </code>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+type AssetDeleteNoticePanelProps = {
+  notice: AssetDeleteNotice;
+};
+
+function AssetDeleteNoticePanel({ notice }: AssetDeleteNoticePanelProps) {
+  return (
+    <div className="asset-edit-notice" role="alert">
+      <div className="readiness-heading">
+        <strong>{notice.title}</strong>
+        <span className="readiness-warning">In use</span>
+      </div>
+      <small>{notice.detail}</small>
+      {notice.projects.length > 0 && (
+        <ul className="asset-edit-reference-list">
+          {notice.projects.map((project) => (
+            <li className="asset-edit-reference" key={project.id}>
+              <span>{project.name}</span>
+              <code>{project.id}</code>
             </li>
           ))}
         </ul>
@@ -1440,6 +1501,41 @@ function assetAnchorConflictReferences(error: unknown): AssetAnchorConflictRefer
       projectName: textValue(reference.project_name, "Saved project"),
       placementID: textValue(reference.placement_id, "unknown-placement"),
       assetPointID: textValue(reference.asset_point_id, "unknown-anchor"),
+    }));
+}
+
+function assetDeleteNoticeForError(assetID: string, error: unknown): AssetDeleteNotice {
+  const projects = assetProjectReferences(error);
+  if (error instanceof APIError && error.status === 409) {
+    return {
+      assetID,
+      title: "Asset delete blocked",
+      detail: projects.length
+        ? "Saved project assemblies still reference this uploaded model."
+        : error.message,
+      projects,
+    };
+  }
+
+  return {
+    assetID,
+    title: "Asset delete failed",
+    detail: error instanceof Error ? error.message : "Unknown asset delete error",
+    projects: [],
+  };
+}
+
+function assetProjectReferences(error: unknown): AssetProjectReference[] {
+  if (!(error instanceof APIError) || error.status !== 409 || !isRecord(error.payload)) {
+    return [];
+  }
+
+  const projects = Array.isArray(error.payload.projects) ? error.payload.projects : [];
+  return projects
+    .filter(isRecord)
+    .map((project) => ({
+      id: textValue(project.id, "unknown-project"),
+      name: textValue(project.name, "Saved project"),
     }));
 }
 
