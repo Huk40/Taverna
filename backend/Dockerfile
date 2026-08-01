@@ -18,7 +18,7 @@ WORKDIR /app
 COPY --from=build /out/taverna /app/taverna
 COPY migrations ./migrations
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN mkdir -p /app/storage/model-assets && chown -R appuser:appuser /app/storage
+RUN mkdir -p /app/storage/model-assets /app/storage/export-artifacts && chown -R appuser:appuser /app/storage
 RUN chmod +x /app/docker-entrypoint.sh
 
 ENV PORT=8080

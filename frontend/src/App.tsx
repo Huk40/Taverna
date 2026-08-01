@@ -257,7 +257,7 @@ export default function App() {
     }
   }
 
-  async function createExportJob() {
+  async function createExportJob(formatOverride?: string) {
     if (!selectedProjectId) {
       setStatus("Сначала сохраните проект");
       return;
@@ -265,7 +265,7 @@ export default function App() {
 
     setIsExporting(true);
     try {
-      const job = await createExport(selectedProjectId, config.product_target, formatForTarget(config.product_target));
+      const job = await createExport(selectedProjectId, config.product_target, formatOverride ?? formatForTarget(config.product_target));
       setLastExport(job);
       await syncExportJobs(selectedProjectId);
       setStatus(`Export job ${job.status}`);
@@ -422,6 +422,7 @@ export default function App() {
       onColorChange={updateColor}
       onCopyShareLink={() => void copyShareLink()}
       onCreateExport={() => void createExportJob()}
+      onCreateOBJExport={() => void createExportJob("obj")}
       onDeleteModelAsset={(id) => void removeModelAsset(id)}
       onOpenProject={(id) => void openProject(id)}
       onProjectNameChange={setProjectName}

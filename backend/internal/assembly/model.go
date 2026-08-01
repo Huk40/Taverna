@@ -37,6 +37,7 @@ type ModelAssetRef struct {
 	Format      string `json:"format"`
 	SizeBytes   int64  `json:"size_bytes"`
 	URL         string `json:"url"`
+	StoragePath string `json:"-"`
 }
 
 type Transform struct {

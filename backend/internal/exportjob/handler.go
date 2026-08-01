@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,13 +15,14 @@ import (
 )
 
 type Handler struct {
-	repo     *Repository
-	assembly *assembly.Service
-	logger   *slog.Logger
+	repo        *Repository
+	assembly    *assembly.Service
+	artifactDir string
+	logger      *slog.Logger
 }
 
-func NewHandler(repo *Repository, assemblyService *assembly.Service, logger *slog.Logger) *Handler {
-	return &Handler{repo: repo, assembly: assemblyService, logger: logger}
+func NewHandler(repo *Repository, assemblyService *assembly.Service, artifactDir string, logger *slog.Logger) *Handler {
+	return &Handler{repo: repo, assembly: assemblyService, artifactDir: artifactDir, logger: logger}
 }
 
 func (h *Handler) ProjectExports(w http.ResponseWriter, r *http.Request) {
@@ -112,13 +114,26 @@ func (h *Handler) listProjectExports(w http.ResponseWriter, r *http.Request, pro
 }
 
 func (h *Handler) Item(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/exports/")
+	path = strings.Trim(path, "/")
+	if path == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "export job not found"})
+		return
+	}
+
+	if strings.HasSuffix(path, "/artifact") {
+		id := strings.TrimSuffix(path, "/artifact")
+		id = strings.Trim(id, "/")
+		h.artifact(w, r, id)
+		return
+	}
+
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
 
-	id := strings.TrimPrefix(r.URL.Path, "/api/exports/")
-	id = strings.TrimSpace(id)
+	id := strings.TrimSpace(path)
 	if id == "" || strings.Contains(id, "/") {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "export job not found"})
 		return
@@ -138,6 +153,52 @@ func (h *Handler) Item(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, job)
+}
+
+func (h *Handler) artifact(w http.ResponseWriter, r *http.Request, id string) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	if id == "" || strings.Contains(id, "/") {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "export artifact not found"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	job, err := h.repo.Get(ctx, id)
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "export job not found"})
+			return
+		}
+		h.serverError(w, "get export job artifact", err)
+		return
+	}
+
+	var payload struct {
+		ArtifactFile ArtifactResult `json:"artifact_file"`
+	}
+	if err := json.Unmarshal(job.Artifact, &payload); err != nil || payload.ArtifactFile.StoragePath == "" {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "export artifact file not found"})
+		return
+	}
+
+	storagePath := filepath.Clean(payload.ArtifactFile.StoragePath)
+	storageRoot := filepath.Clean(h.artifactDir)
+	rel, err := filepath.Rel(storageRoot, storagePath)
+	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		h.serverError(w, "resolve export artifact", errors.New("artifact path escapes storage dir"))
+		return
+	}
+
+	if payload.ArtifactFile.ContentType != "" {
+		w.Header().Set("Content-Type", payload.ArtifactFile.ContentType)
+	}
+	w.Header().Set("Content-Disposition", "attachment; filename=\""+payload.ArtifactFile.FileName+"\"")
+	http.ServeFile(w, r, storagePath)
 }
 
 func (h *Handler) serverError(w http.ResponseWriter, operation string, err error) {

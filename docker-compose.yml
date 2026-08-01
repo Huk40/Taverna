@@ -24,11 +24,13 @@ services:
       MIGRATIONS_DIR: /app/migrations
       CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
       MODEL_ASSET_DIR: /app/storage/model-assets
+      EXPORT_ARTIFACT_DIR: /app/storage/export-artifacts
       MAX_MODEL_ASSET_BYTES: "52428800"
     ports:
       - "8080:8080"
     volumes:
       - model_asset_data:/app/storage/model-assets
+      - export_artifact_data:/app/storage/export-artifacts
     depends_on:
       postgres:
         condition: service_healthy
@@ -46,3 +48,4 @@ services:
 volumes:
   postgres_data:
   model_asset_data:
+  export_artifact_data:

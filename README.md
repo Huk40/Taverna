@@ -147,6 +147,7 @@ Export endpoints:
 - `POST /api/projects/{id}/exports`: создать fake export job для проекта.
 - `GET /api/projects/{id}/exports`: получить историю export jobs проекта.
 - `GET /api/exports/{id}`: получить export job.
+- `GET /api/exports/{id}/artifact`: скачать созданный artifact-файл, если export format его поддерживает.
 
 Статусы jobs:
 
@@ -155,7 +156,9 @@ Export endpoints:
 - `completed`
 - `failed`
 
-На текущем этапе Redis, MinIO и mesh worker намеренно не подключены. API создает job, сразу завершает его placeholder artifact metadata, включает краткий assembly summary и полный `assembly_manifest` по uploaded assets, затем сохраняет историю export jobs проекта, чтобы зафиксировать будущий контракт.
+На текущем этапе Redis, MinIO и отдельный mesh worker намеренно не подключены. API создает job, сразу завершает его metadata, включает краткий assembly summary и полный `assembly_manifest` по uploaded assets, затем сохраняет историю export jobs проекта, чтобы зафиксировать будущий контракт.
+
+Для первого физического artifact pipeline backend поддерживает `format: "obj"`: он берет uploaded OBJ assets из assembly manifest, применяет рассчитанные `world_transform`, склеивает вершины/faces в один `.obj` и сохраняет файл в server storage. Для `.glb`, `.stl` и `.3mf` пока возвращается manifest-only artifact с предупреждением; конвертация этих форматов остается задачей будущего worker-а.
 
 ## Share links
 
@@ -169,6 +172,7 @@ Export endpoints:
 - User model asset upload API с локальным server storage.
 - Assembly placements по точкам сборки (`right_hand`, `left_hand`, `head_mount`, `back_mount`, `base_mount`, `stage_anchor`).
 - Server-side assembly manifest API для будущего mesh worker.
+- MVP OBJ artifact builder: собирает uploaded OBJ placements в downloadable `.obj`.
 - Compatibility validation на backend.
 - Print-readiness summary на frontend с динамическим максимумом `scale.mm`.
 - Three.js preview, который реагирует на species, body, clothing, gear, pose, stage, base, scale, material zones и uploaded assembly assets.
@@ -181,7 +185,7 @@ Export endpoints:
 ## Что не входит в этот этап
 
 - Реальная генерация STL, 3MF или GLB.
-- Blender worker.
+- Blender worker или отдельный mesh worker service.
 - Redis очередь.
 - MinIO файловое хранилище.
 - Auth-scoped personal asset library.

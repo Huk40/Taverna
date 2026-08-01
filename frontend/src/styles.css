@@ -706,6 +706,15 @@ input[type="color"] {
   overflow-wrap: anywhere;
 }
 
+.export-status a,
+.export-item a {
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
 .empty-state {
   margin: 0;
   padding: 12px;

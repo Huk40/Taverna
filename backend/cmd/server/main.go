@@ -54,8 +54,9 @@ func main() {
 	assemblyService := assembly.NewService(projectRepo, modelAssetRepo, catalogService)
 	assemblyHandler := assembly.NewHandler(assemblyService, logger)
 	projectHandler := project.NewHandler(projectRepo, catalogService, modelAssetRepo, logger)
-	exportRepo := exportjob.NewRepository(pool)
-	exportHandler := exportjob.NewHandler(exportRepo, assemblyService, logger)
+	artifactBuilder := exportjob.NewArtifactBuilder(cfg.ExportArtifactDir)
+	exportRepo := exportjob.NewRepository(pool, artifactBuilder)
+	exportHandler := exportjob.NewHandler(exportRepo, assemblyService, cfg.ExportArtifactDir, logger)
 	router := app.NewRouter(projectHandler, catalogHandler, exportHandler, modelAssetHandler, assemblyHandler, pool, cfg.CORSAllowedOrigins)
 
 	server := &http.Server{

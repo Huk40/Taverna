@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import CharacterPreview from "./CharacterPreview";
+import { exportArtifactURL } from "./api";
 import type {
   AssemblyPlacement,
   AssemblyManifest,
@@ -65,6 +66,7 @@ type EditorShellProps = {
   onColorChange: (zone: string, value: string) => void;
   onCopyShareLink: () => void;
   onCreateExport: () => void;
+  onCreateOBJExport: () => void;
   onDeleteModelAsset: (id: string) => void;
   onOpenProject: (id: string) => void;
   onProjectNameChange: (value: string) => void;
@@ -106,6 +108,7 @@ export default function EditorShell({
   onColorChange,
   onCopyShareLink,
   onCreateExport,
+  onCreateOBJExport,
   onDeleteModelAsset,
   onOpenProject,
   onProjectNameChange,
@@ -195,6 +198,7 @@ export default function EditorShell({
             onColorChange,
             onCopyShareLink,
             onCreateExport,
+            onCreateOBJExport,
             onDeleteModelAsset,
             onOpenProject,
             onRefreshAssemblyManifest,
@@ -237,6 +241,7 @@ type InspectorProps = Pick<
   | "onColorChange"
   | "onCopyShareLink"
   | "onCreateExport"
+  | "onCreateOBJExport"
   | "onDeleteModelAsset"
   | "onOpenProject"
   | "onRefreshAssemblyManifest"
@@ -319,6 +324,7 @@ function renderInspector(props: InspectorProps) {
           shareURL={props.shareURL}
           onCopyShareLink={props.onCopyShareLink}
           onCreateExport={props.onCreateExport}
+          onCreateOBJExport={props.onCreateOBJExport}
           onRefreshAssemblyManifest={props.onRefreshAssemblyManifest}
           onSlotChange={props.onSlotChange}
         />
@@ -760,6 +766,7 @@ type ExportPanelProps = {
   shareURL: string;
   onCopyShareLink: () => void;
   onCreateExport: () => void;
+  onCreateOBJExport: () => void;
   onRefreshAssemblyManifest: () => void;
   onSlotChange: (slot: SlotID, partID: string) => void;
 };
@@ -777,6 +784,7 @@ function ExportPanel({
   shareURL,
   onCopyShareLink,
   onCreateExport,
+  onCreateOBJExport,
   onRefreshAssemblyManifest,
   onSlotChange,
 }: ExportPanelProps) {
@@ -799,10 +807,19 @@ function ExportPanel({
         <FileDown size={18} />
         {isExporting ? "Создание job..." : "Создать export job"}
       </button>
+      <button className="wide-command" type="button" onClick={onCreateOBJExport} disabled={!selectedProjectId || isExporting}>
+        <Boxes size={18} />
+        Create OBJ assembly
+      </button>
       {lastExport && (
         <div className="export-status">
           <strong>{lastExport.status}</strong>
           <span>{lastExport.format.toUpperCase()} · {lastExport.id}</span>
+          {lastExport.artifact.artifact_file?.url && (
+            <a href={exportArtifactURL(lastExport.artifact.artifact_file.url)} target="_blank" rel="noreferrer">
+              {lastExport.artifact.artifact_file.file_name}
+            </a>
+          )}
         </div>
       )}
       <div className="export-list">
@@ -813,6 +830,11 @@ function ExportPanel({
               <span>{job.format.toUpperCase()} · {job.target}</span>
             </div>
             <small>{new Date(job.updated_at).toLocaleString()}</small>
+            {job.artifact.artifact_file?.url && (
+              <a href={exportArtifactURL(job.artifact.artifact_file.url)} target="_blank" rel="noreferrer">
+                {job.artifact.artifact_file.file_name}
+              </a>
+            )}
             <code>{job.id}</code>
           </article>
         ))}

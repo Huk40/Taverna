@@ -108,10 +108,25 @@ export type ExportJob = {
   target: string;
   format: string;
   status: "queued" | "processing" | "completed" | "failed";
-  artifact: Record<string, unknown>;
+  artifact: {
+    artifact_file?: ExportArtifactFile;
+    [key: string]: unknown;
+  };
   error: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type ExportArtifactFile = {
+  kind: string;
+  file_name: string;
+  format: string;
+  content_type: string;
+  size_bytes: number;
+  url: string;
+  included_assets?: string[];
+  skipped_assets?: string[];
+  warnings?: string[];
 };
 
 export type ModelAssetAssemblyPoint = {

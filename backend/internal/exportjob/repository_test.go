@@ -30,6 +30,12 @@ func TestNormalizeExportDefaults(t *testing.T) {
 			wantTarget: "physical_print",
 			wantFormat: "3mf",
 		},
+		{
+			name:       "OBJ assembly format is preserved",
+			request:    CreateRequest{Target: "glb_preview", Format: "obj"},
+			wantTarget: "glb_preview",
+			wantFormat: "obj",
+		},
 	}
 
 	for _, tt := range tests {
@@ -56,7 +62,7 @@ func TestAllowedExportValues(t *testing.T) {
 		t.Fatal("invoice_pdf target should not be allowed")
 	}
 
-	for _, format := range []string{"stl", "glb", "3mf"} {
+	for _, format := range []string{"stl", "glb", "3mf", "obj"} {
 		if !allowedFormat(format) {
 			t.Fatalf("format %q should be allowed", format)
 		}
@@ -67,7 +73,7 @@ func TestAllowedExportValues(t *testing.T) {
 }
 
 func TestBuildFakeArtifactIncludesPrintReadiness(t *testing.T) {
-	raw, err := buildFakeArtifact("project-1", "stl_print", "stl", map[string]any{"placements": []any{}})
+	raw, err := buildFakeArtifact("project-1", "stl_print", "stl", map[string]any{"placements": []any{}}, ArtifactResult{})
 	if err != nil {
 		t.Fatalf("buildFakeArtifact() error = %v", err)
 	}
@@ -102,7 +108,14 @@ func TestBuildFakeArtifactIncludesAssemblySummary(t *testing.T) {
 		},
 	}
 
-	raw, err := buildFakeArtifact("project-1", "glb_preview", "glb", manifest)
+	raw, err := buildFakeArtifact("project-1", "glb_preview", "obj", manifest, ArtifactResult{
+		Kind:        "assembled_obj",
+		FileName:    "job-1.obj",
+		Format:      "obj",
+		SizeBytes:   128,
+		StoragePath: "/tmp/job-1.obj",
+		URL:         "/api/exports/job-1/artifact",
+	})
 	if err != nil {
 		t.Fatalf("buildFakeArtifact() error = %v", err)
 	}
@@ -124,5 +137,12 @@ func TestBuildFakeArtifactIncludesAssemblySummary(t *testing.T) {
 	}
 	if _, ok := artifact["assembly_manifest"].(map[string]any); !ok {
 		t.Fatalf("assembly_manifest missing from artifact: %v", artifact)
+	}
+	artifactFile, ok := artifact["artifact_file"].(map[string]any)
+	if !ok {
+		t.Fatalf("artifact_file missing from artifact: %v", artifact)
+	}
+	if artifactFile["url"] != "/api/exports/job-1/artifact" {
+		t.Fatalf("artifact_file url = %v", artifactFile["url"])
 	}
 }

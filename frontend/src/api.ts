@@ -145,8 +145,16 @@ export function getAssemblyPointTargets(): Promise<AssemblyPointTarget[]> {
 }
 
 export function assetFileURL(asset: ModelAsset): string {
-  if (asset.url.startsWith("http://") || asset.url.startsWith("https://")) {
-    return asset.url;
+  return absoluteAPIURL(asset.url);
+}
+
+export function exportArtifactURL(url: string): string {
+  return absoluteAPIURL(url);
+}
+
+function absoluteAPIURL(url: string): string {
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return url;
   }
-  return `${API_URL}${asset.url}`;
+  return `${API_URL}${url}`;
 }

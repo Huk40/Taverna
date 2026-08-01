@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"taverna/backend/internal/assembly"
 )
 
 var ErrNotFound = errors.New("export job not found")
@@ -16,11 +18,12 @@ var ErrProjectNotFound = errors.New("project not found")
 var ErrInvalidRequest = errors.New("invalid export request")
 
 type Repository struct {
-	pool *pgxpool.Pool
+	pool      *pgxpool.Pool
+	artifacts *ArtifactBuilder
 }
 
-func NewRepository(pool *pgxpool.Pool) *Repository {
-	return &Repository{pool: pool}
+func NewRepository(pool *pgxpool.Pool, artifacts *ArtifactBuilder) *Repository {
+	return &Repository{pool: pool, artifacts: artifacts}
 }
 
 func (r *Repository) Create(ctx context.Context, projectID string, request CreateRequest, assemblyManifest any) (ExportJob, error) {
@@ -52,7 +55,19 @@ func (r *Repository) Create(ctx context.Context, projectID string, request Creat
 		return ExportJob{}, err
 	}
 
-	artifact, err := buildFakeArtifact(projectID, target, format, assemblyManifest)
+	var artifactFile ArtifactResult
+	if r.artifacts != nil {
+		manifest, ok := assemblyManifest.(assembly.Manifest)
+		if !ok {
+			return ExportJob{}, fmt.Errorf("assembly manifest has unexpected type %T", assemblyManifest)
+		}
+		artifactFile, err = r.artifacts.Build(job.ID, manifest, format)
+		if err != nil {
+			return ExportJob{}, fmt.Errorf("build export artifact: %w", err)
+		}
+	}
+
+	artifact, err := buildFakeArtifact(projectID, target, format, assemblyManifest, artifactFile)
 	if err != nil {
 		return ExportJob{}, fmt.Errorf("create artifact metadata: %w", err)
 	}
@@ -122,16 +137,22 @@ func (r *Repository) projectExists(ctx context.Context, projectID string) (bool,
 	return exists, nil
 }
 
-func buildFakeArtifact(projectID string, target string, format string, assemblyManifest any) ([]byte, error) {
+func buildFakeArtifact(projectID string, target string, format string, assemblyManifest any, artifactFile ArtifactResult) ([]byte, error) {
+	printWarnings := []string{"mesh_worker_not_connected"}
+	if artifactFile.URL == "" {
+		printWarnings = append(printWarnings, "artifact_file_not_generated_for_requested_format")
+	}
+
 	return json.Marshal(map[string]any{
-		"kind":              "fake_export",
+		"kind":              "export_job_artifact",
 		"schema_version":    1,
 		"source_project_id": projectID,
 		"target":            target,
 		"format":            format,
 		"assembly":          assemblySummary(assemblyManifest),
 		"assembly_manifest": assemblyManifest,
-		"message":           "Placeholder export metadata. Redis, MinIO, and the mesh worker are intentionally not connected yet.",
+		"artifact_file":     artifactFile,
+		"message":           "Export metadata with MVP OBJ assembly artifact when requested. Redis, MinIO, and the full mesh worker are intentionally not connected yet.",
 		"print_readiness": map[string]any{
 			"status": "metadata_ready",
 			"checks": []string{
@@ -139,12 +160,9 @@ func buildFakeArtifact(projectID string, target string, format string, assemblyM
 				"config_validated_before_save",
 				"export_job_persisted",
 			},
-			"warnings": []string{
-				"mesh_worker_not_connected",
-				"artifact_file_not_generated",
-			},
+			"warnings": printWarnings,
 		},
-		"worker_plan": []string{"Redis queue", "mesh worker", "MinIO artifact storage"},
+		"worker_plan": []string{"Redis queue", "mesh worker", "MinIO artifact storage", "GLB/STL/3MF mesh conversion"},
 	})
 }
 
@@ -237,7 +255,7 @@ func allowedTarget(target string) bool {
 
 func allowedFormat(format string) bool {
 	switch format {
-	case "stl", "glb", "3mf":
+	case "stl", "glb", "3mf", "obj":
 		return true
 	default:
 		return false
