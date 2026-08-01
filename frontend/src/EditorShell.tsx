@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Circle,
   Copy,
+  Crosshair,
   FileDown,
   FolderOpen,
   Palette,
@@ -792,9 +793,20 @@ function AssemblyPanel({
             <article className="placement-card" key={placement.id}>
               <div className="asset-title-row">
                 <strong>{asset?.label ?? "Missing asset"}</strong>
-                <button className="delete-button small" type="button" onClick={() => onRemoveAssemblyPlacement(placement.id)} title="Remove placement">
-                  <X size={15} />
-                </button>
+                <div className="placement-actions">
+                  <button
+                    className="topbar-button compact-action"
+                    type="button"
+                    onClick={() => onUpdateAssemblyPlacement(placement.id, snapPlacementTransform(placement, selectedAssetPointID))}
+                    title="Snap anchor to attachment point"
+                  >
+                    <Crosshair size={15} />
+                    Snap
+                  </button>
+                  <button className="delete-button small" type="button" onClick={() => onRemoveAssemblyPlacement(placement.id)} title="Remove placement">
+                    <X size={15} />
+                  </button>
+                </div>
               </div>
               {asset && <AssetGeometrySummary metadata={asset.metadata} />}
               <label className="field">
@@ -858,6 +870,17 @@ function AssemblyPanel({
       </div>
     </div>
   );
+}
+
+function snapPlacementTransform(placement: AssemblyPlacement, assetPointID: string): Partial<AssemblyPlacement> {
+  return {
+    asset_point_id: assetPointID || placement.asset_point_id,
+    transform: {
+      ...placement.transform,
+      position: [0, 0, 0],
+      rotation: [0, 0, 0],
+    },
+  };
 }
 
 type VectorControlProps = {

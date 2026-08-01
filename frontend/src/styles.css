@@ -145,6 +145,12 @@ p {
   padding: 0 12px;
 }
 
+.topbar-button.compact-action {
+  min-height: 34px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+}
+
 .primary-action {
   border-color: transparent;
   color: #111318;
@@ -599,6 +605,14 @@ input[type="color"] {
 .asset-title-row strong {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.placement-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .asset-actions .wide-command {
