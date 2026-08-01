@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -172,12 +173,7 @@ func (h *Handler) validateAssemblyAssets(w http.ResponseWriter, ctx context.Cont
 		return true
 	}
 
-	assetIDs := make([]string, 0, len(config.Assembly.Placements))
-	for _, placement := range config.Assembly.Placements {
-		assetIDs = append(assetIDs, placement.AssetID)
-	}
-
-	missing, err := h.assets.MissingIDs(ctx, assetIDs)
+	assetsByID, missing, err := h.loadAssemblyAssets(ctx, config)
 	if err != nil {
 		h.serverError(w, "validate assembly assets", err)
 		return false
@@ -186,7 +182,72 @@ func (h *Handler) validateAssemblyAssets(w http.ResponseWriter, ctx context.Cont
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "assembly references unknown model assets: " + strings.Join(missing, ", ")})
 		return false
 	}
+
+	if err := validateAssemblyAssetPlacements(config, assetsByID); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return false
+	}
+
 	return true
+}
+
+func (h *Handler) loadAssemblyAssets(ctx context.Context, config catalog.CharacterConfig) (map[string]modelasset.ModelAsset, []string, error) {
+	assetsByID := make(map[string]modelasset.ModelAsset)
+	missing := []string{}
+	seen := make(map[string]struct{})
+
+	for _, placement := range config.Assembly.Placements {
+		assetID := strings.TrimSpace(placement.AssetID)
+		if assetID == "" {
+			continue
+		}
+		if _, ok := seen[assetID]; ok {
+			continue
+		}
+		seen[assetID] = struct{}{}
+
+		asset, err := h.assets.Get(ctx, assetID)
+		if err != nil {
+			if errors.Is(err, modelasset.ErrNotFound) {
+				missing = append(missing, assetID)
+				continue
+			}
+			return nil, nil, err
+		}
+		assetsByID[asset.ID] = asset
+	}
+
+	return assetsByID, missing, nil
+}
+
+func validateAssemblyAssetPlacements(config catalog.CharacterConfig, assetsByID map[string]modelasset.ModelAsset) error {
+	for _, placement := range config.Assembly.Placements {
+		assetID := strings.TrimSpace(placement.AssetID)
+		asset, ok := assetsByID[assetID]
+		if !ok {
+			continue
+		}
+		if asset.Slot != placement.Slot {
+			return fmt.Errorf("assembly placement %q uses asset %q from slot %q as slot %q", placement.ID, asset.ID, asset.Slot, placement.Slot)
+		}
+		if !assetHasAssemblyPoint(asset, placement.AssetPointID) {
+			return fmt.Errorf("assembly placement %q references unknown asset_point_id %q for model asset %q", placement.ID, placement.AssetPointID, asset.ID)
+		}
+	}
+	return nil
+}
+
+func assetHasAssemblyPoint(asset modelasset.ModelAsset, assetPointID string) bool {
+	assetPointID = strings.TrimSpace(assetPointID)
+	if assetPointID == "" {
+		return true
+	}
+	for _, point := range asset.AssemblyPoints {
+		if point.ID == assetPointID {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *Handler) handleRepositoryError(w http.ResponseWriter, operation string, err error) {
