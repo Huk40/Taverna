@@ -73,6 +73,52 @@ func TestSuggestedAssemblyPointsFallsBackWithoutBounds(t *testing.T) {
 	}
 }
 
+func TestValidateUploadGeometryAllowsParsedTriangleGeometry(t *testing.T) {
+	err := validateUploadGeometry(FormatOBJ, GeometryMetadata{
+		Status:        "parsed",
+		Bounds:        &GeometryBounds{Min: Vector3{0, 0, 0}, Max: Vector3{1, 1, 0}, Size: Vector3{1, 1, 0}, Center: Vector3{0.5, 0.5, 0}},
+		TriangleCount: 1,
+	})
+	if err != nil {
+		t.Fatalf("validateUploadGeometry() error = %v", err)
+	}
+}
+
+func TestValidateUploadGeometryRejectsEmptyParsedFormats(t *testing.T) {
+	err := validateUploadGeometry(FormatOBJ, GeometryMetadata{
+		Status:   "empty",
+		Warnings: []string{"no vertices were found"},
+	})
+	if err == nil {
+		t.Fatal("expected empty OBJ geometry to fail")
+	}
+	if err.Error() != "file does not contain readable OBJ triangle geometry: no vertices were found" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestValidateUploadGeometryRejectsMissingTriangles(t *testing.T) {
+	err := validateUploadGeometry(FormatGLB, GeometryMetadata{
+		Status:        "parsed",
+		Bounds:        &GeometryBounds{Min: Vector3{0, 0, 0}, Max: Vector3{1, 1, 0}, Size: Vector3{1, 1, 0}, Center: Vector3{0.5, 0.5, 0}},
+		TriangleCount: 0,
+	})
+	if err == nil {
+		t.Fatal("expected parsed GLB without triangles to fail")
+	}
+	if err.Error() != "file does not contain GLB triangle faces" {
+		t.Fatalf("error = %q", err.Error())
+	}
+}
+
+func TestValidateUploadGeometryAllowsMetadataOnlyFormats(t *testing.T) {
+	for _, format := range []string{FormatGLTF, Format3MF} {
+		if err := validateUploadGeometry(format, GeometryMetadata{Status: "stored"}); err != nil {
+			t.Fatalf("validateUploadGeometry(%q) error = %v", format, err)
+		}
+	}
+}
+
 func TestDecodeAssemblyPointsRejectsInvalidJSON(t *testing.T) {
 	if _, _, err := decodeAssemblyPoints("{"); err == nil {
 		t.Fatal("expected invalid JSON to fail")

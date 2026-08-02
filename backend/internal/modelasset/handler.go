@@ -279,6 +279,11 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 	if metadata.Status == "error" {
 		h.logger.Warn("model asset geometry inspection failed", "file_name", originalName, "format", format, "warnings", metadata.Warnings)
 	}
+	if err := validateUploadGeometry(format, metadata); err != nil {
+		_ = os.Remove(storagePath)
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	points := customPoints
 	if !hasCustomPoints {
 		points = suggestedAssemblyPoints(metadata, slot, attachmentPoint)
@@ -390,6 +395,38 @@ func decodeAssemblyPoints(raw string) ([]AssemblyPoint, bool, error) {
 	}
 	normalized, err := normalizeAssemblyPoints(points)
 	return normalized, true, err
+}
+
+func validateUploadGeometry(format string, metadata GeometryMetadata) error {
+	switch strings.TrimSpace(strings.ToLower(format)) {
+	case FormatOBJ, FormatSTL, FormatGLB:
+	default:
+		return nil
+	}
+
+	if metadata.Status != "parsed" {
+		return fmt.Errorf("file does not contain readable %s triangle geometry: %s", strings.ToUpper(format), firstGeometryWarning(metadata))
+	}
+	if metadata.Bounds == nil {
+		return fmt.Errorf("file does not contain readable %s bounds", strings.ToUpper(format))
+	}
+	if metadata.TriangleCount <= 0 {
+		return fmt.Errorf("file does not contain %s triangle faces", strings.ToUpper(format))
+	}
+	return nil
+}
+
+func firstGeometryWarning(metadata GeometryMetadata) string {
+	for _, warning := range metadata.Warnings {
+		warning = strings.TrimSpace(warning)
+		if warning != "" {
+			return warning
+		}
+	}
+	if metadata.Status == "" {
+		return "geometry metadata is unavailable"
+	}
+	return "geometry status is " + metadata.Status
 }
 
 func suggestedAssemblyPoints(metadata GeometryMetadata, slot string, fallbackPoint string) []AssemblyPoint {
