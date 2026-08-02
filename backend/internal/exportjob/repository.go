@@ -162,7 +162,7 @@ func buildFakeArtifact(projectID string, target string, format string, assemblyM
 			},
 			"warnings": printWarnings,
 		},
-		"worker_plan": []string{"Redis queue", "mesh worker", "MinIO artifact storage", "GLB/STL/3MF mesh conversion"},
+		"worker_plan": []string{"Redis queue", "mesh worker", "MinIO artifact storage", "GLB/GLTF/STL/3MF mesh conversion"},
 	})
 }
 

@@ -29,14 +29,10 @@ func InspectGeometry(path string, format string) GeometryMetadata {
 		metadata, err = inspectSTLGeometry(path)
 	case FormatGLB:
 		metadata, err = inspectGLBGeometry(path)
+	case FormatGLTF:
+		metadata, err = inspectGLTFGeometry(path)
 	case Format3MF:
 		metadata, err = inspect3MFGeometry(path)
-	case FormatGLTF:
-		return normalizeGeometryMetadata(GeometryMetadata{
-			Status:   "stored",
-			Source:   format,
-			Warnings: []string{fmt.Sprintf("server geometry metadata is not parsed for %s assets yet", strings.ToUpper(format))},
-		})
 	default:
 		return normalizeGeometryMetadata(GeometryMetadata{
 			Status:   "unknown",
@@ -320,8 +316,14 @@ func (bounds geometryBoundsAccumulator) Bounds() *GeometryBounds {
 
 type glbDocument struct {
 	Accessors   []glbAccessor   `json:"accessors"`
+	Buffers     []glbBuffer     `json:"buffers"`
 	BufferViews []glbBufferView `json:"bufferViews"`
 	Meshes      []glbMesh       `json:"meshes"`
+}
+
+type glbBuffer struct {
+	URI        string `json:"uri"`
+	ByteLength int    `json:"byteLength"`
 }
 
 type glbAccessor struct {

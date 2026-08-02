@@ -128,17 +128,17 @@ Model asset endpoints:
 - `DELETE /api/model-assets/{id}`: удалить metadata и файл. Если asset уже используется в сохраненных `projects.config.assembly.placements`, backend возвращает `409 Conflict`, чтобы не сломать server assembly manifest/export у существующих проектов.
 - `GET /api/model-assets/assembly-points`: список поддержанных target points для сборки.
 
-Поддержанные форматы upload: `.glb`, `.gltf`, `.obj`, `.stl`, `.3mf`. Файлы хранятся локально в backend storage volume, metadata хранится в PostgreSQL таблице `model_assets`. Проект сохраняет ссылки на загруженные модели в `config.assembly.placements`, а backend проверяет, что referenced asset IDs существуют.
+Поддержанные форматы upload: `.glb`, `.gltf`, `.obj`, `.stl`, `.3mf`. Для `.gltf` MVP поддерживает embedded buffers через data URI; standalone `.gltf` с внешним `.bin` отклоняется, потому что сервер получает только один файл upload-а. Файлы хранятся локально в backend storage volume, metadata хранится в PostgreSQL таблице `model_assets`. Проект сохраняет ссылки на загруженные модели в `config.assembly.placements`, а backend проверяет, что referenced asset IDs существуют.
 
 `config.assembly.placements[].asset_point_id` selects the local anchor of the uploaded model. The server aligns that asset anchor to the character `attachment_point` and includes the resolved `asset_point` plus final `world_transform` in the assembly manifest.
 
 In the frontend upload flow, a successfully uploaded model is immediately added to `config.assembly.placements` at the selected `attachment_point`, so the user can see and tune the assembled asset without an extra manual add step.
 
-When an uploaded OBJ/STL/GLB/3MF asset has parsed bounds, the asset anchor editor offers position presets such as center, bottom, top, left, right, front, and back. These presets are stored as normal `assembly_points` and make it faster to align the model to character sockets.
+When an uploaded OBJ/STL/GLB/GLTF/3MF asset has parsed bounds, the asset anchor editor offers position presets such as center, bottom, top, left, right, front, and back. These presets are stored as normal `assembly_points` and make it faster to align the model to character sockets.
 
-When uploaded OBJ/STL/GLB/3MF assets have parsed geometry metadata, the assembly manifest also includes per-placement `world_bounds` and combined manifest `bounds`, both computed from the resolved `world_transform`.
+When uploaded OBJ/STL/GLB/GLTF/3MF assets have parsed geometry metadata, the assembly manifest also includes per-placement `world_bounds` and combined manifest `bounds`, both computed from the resolved `world_transform`.
 
-Uploaded model asset responses include `metadata` with server-inspected geometry for OBJ, embedded-bin GLB, ASCII/binary STL, and simple 3MF mesh files: parser status, source type, bounds (`min`, `max`, `size`, `center`), vertex count, face count, triangle count, and warnings. GLTF files are stored and exposed through the same API, but server-side geometry inspection for standalone GLTF is intentionally deferred to the future mesh worker.
+Uploaded model asset responses include `metadata` with server-inspected geometry for OBJ, embedded-bin GLB, embedded-buffer GLTF, ASCII/binary STL, and simple 3MF mesh files: parser status, source type, bounds (`min`, `max`, `size`, `center`), vertex count, face count, triangle count, and warnings.
 
 ## Assembly Manifest API
 
@@ -150,7 +150,7 @@ Uploaded model asset responses include `metadata` with server-inspected geometry
 - selected `asset_point_id` and resolved local `asset_point`;
 - socket transform точки сборки;
 - пользовательский transform placement-а;
-- итоговый `world_transform`, который будущий mesh worker сможет использовать для сборки GLB/STL/3MF.
+- итоговый `world_transform`, который будущий mesh worker сможет использовать для сборки GLB/GLTF/STL/3MF.
 
 `POST /api/assembly/preview` принимает `{ "config": CharacterConfig }` и возвращает такой же manifest с `project_id: "preview"`, чтобы frontend мог проверить текущую сборку по точкам до сохранения проекта.
 
@@ -176,7 +176,7 @@ Export endpoints:
 
 На текущем этапе Redis, MinIO и отдельный mesh worker намеренно не подключены. API создает job, сразу завершает его metadata, включает краткий assembly summary и полный `assembly_manifest` по uploaded assets, затем сохраняет историю export jobs проекта, чтобы зафиксировать будущий контракт.
 
-Для первого физического artifact pipeline backend поддерживает `format: "obj"` и `format: "stl"`. OBJ export берет uploaded OBJ assets из assembly manifest, применяет рассчитанные `world_transform`, склеивает вершины/faces в один `.obj` и сохраняет файл в server storage. STL export создает ASCII `.stl`: uploaded ASCII/binary STL перечитываются как facets, простые OBJ placements триангулируются, а embedded-bin GLB и simple 3MF mesh placements конвертируются в STL facets с пересчитанными normals. Полноценная генерация GLB/3MF output остается задачей будущего worker-а.
+Для первого физического artifact pipeline backend поддерживает `format: "obj"` и `format: "stl"`. OBJ export берет uploaded OBJ assets из assembly manifest, применяет рассчитанные `world_transform`, склеивает вершины/faces в один `.obj` и сохраняет файл в server storage. STL export создает ASCII `.stl`: uploaded ASCII/binary STL перечитываются как facets, простые OBJ placements триангулируются, а embedded-bin GLB, embedded-buffer GLTF и simple 3MF mesh placements конвертируются в STL facets с пересчитанными normals. Полноценная генерация GLB/GLTF/3MF output остается задачей будущего worker-а.
 
 ## Share links
 
@@ -189,23 +189,23 @@ Export endpoints:
 - Versioned `CharacterConfig` со `schema_version: 1`.
 - User model asset upload API с локальным server storage.
 - Upload UI for multiple local asset anchors, persisted as `assembly_points`.
-- Server-inspected geometry metadata for uploaded OBJ, embedded-bin GLB, ASCII/binary STL, and simple 3MF mesh assets.
+- Server-inspected geometry metadata for uploaded OBJ, embedded-bin GLB, embedded-buffer GLTF, ASCII/binary STL, and simple 3MF mesh assets.
 - Assembly placements по точкам сборки (`right_hand`, `left_hand`, `head_mount`, `back_mount`, `base_mount`, `stage_anchor`).
 - Server-side assembly manifest API для будущего mesh worker.
 - Server-side assembled bounds in the assembly manifest for parsed uploaded assets.
-- MVP OBJ/STL artifact builder: собирает uploaded OBJ placements в downloadable `.obj`, а uploaded ASCII/binary STL, embedded-bin GLB, simple 3MF mesh и triangulated OBJ placements - в downloadable ASCII `.stl`.
+- MVP OBJ/STL artifact builder: собирает uploaded OBJ placements в downloadable `.obj`, а uploaded ASCII/binary STL, embedded-bin GLB, embedded-buffer GLTF, simple 3MF mesh и triangulated OBJ placements - в downloadable ASCII `.stl`.
 - Compatibility validation на backend.
 - Print-readiness summary на frontend с динамическим максимумом `scale.mm`.
 - Three.js preview, который реагирует на species, body, clothing, gear, pose, stage, base, scale, material zones и uploaded assembly assets.
 - Сохранение, загрузка, открытие, обновление и удаление проектов.
 - Share link для открытия сохраненного проекта по URL.
 - PostgreSQL таблицы `projects`, `model_assets` и `export_jobs`.
-- Fake export job API под будущий STL/GLB/3MF pipeline.
+- Fake export job API под будущий STL/GLB/GLTF/3MF pipeline.
 - Docker Compose для frontend, backend и PostgreSQL.
 
 ## Что не входит в этот этап
 
-- Полноценная генерация GLB/3MF и сложная STL-конвертация через mesh worker.
+- Полноценная генерация GLB/GLTF/3MF и сложная STL-конвертация через mesh worker.
 - Blender worker или отдельный mesh worker service.
 - Redis очередь.
 - MinIO файловое хранилище.
@@ -222,6 +222,6 @@ Export endpoints:
 - Redis для очереди задач.
 - MinIO для сгенерированных файлов и ассетов.
 - GLB placeholders вместо процедурных Three.js primitives.
-- API для реального экспорта GLB, STL и 3MF.
+- API для реального экспорта GLB, GLTF, STL и 3MF.
 - Пользовательскую библиотеку проектов, share links и версии персонажей.
 - Админку каталога частей и заказов.

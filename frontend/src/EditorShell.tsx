@@ -552,7 +552,7 @@ function AssetPanel({
 
   return (
     <div className="inspector-content">
-      <PanelHeading title="Assets" subtitle="Upload user GLB, OBJ, STL, or 3MF models to the server" />
+      <PanelHeading title="Assets" subtitle="Upload user GLB, GLTF, OBJ, STL, or 3MF models to the server" />
       <form className="asset-upload-form" onSubmit={handleSubmit}>
         <label className="file-drop">
           <UploadCloud size={20} />

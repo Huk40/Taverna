@@ -3,6 +3,7 @@ package exportjob
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -283,6 +284,53 @@ func TestArtifactBuilderAssemblesSTLFromGLBPlacement(t *testing.T) {
 	}
 }
 
+func TestArtifactBuilderAssemblesSTLFromGLTFPlacement(t *testing.T) {
+	sourceDir := t.TempDir()
+	sourcePath := filepath.Join(sourceDir, "blade.gltf")
+	writeArtifactGLTF(t, sourcePath)
+
+	builder := NewArtifactBuilder(t.TempDir())
+	result, err := builder.Build("job-1", assembly.Manifest{
+		ProjectID: "project-1",
+		Placements: []assembly.ResolvedPlacement{{
+			ID: "placement-1",
+			Asset: assembly.ModelAssetRef{
+				ID:          "asset-1",
+				Label:       "Blade",
+				FileName:    "blade.gltf",
+				Format:      modelasset.FormatGLTF,
+				StoragePath: sourcePath,
+			},
+			WorldTransform: assembly.Transform{
+				Position: [3]float64{1, 2, 3},
+				Rotation: [3]float64{0, 0, 0},
+				Scale:    2,
+			},
+		}},
+	}, "stl")
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if len(result.IncludedAssets) != 1 || result.IncludedAssets[0] != "asset-1" {
+		t.Fatalf("included assets = %v", result.IncludedAssets)
+	}
+
+	raw, err := os.ReadFile(result.StoragePath)
+	if err != nil {
+		t.Fatalf("read assembled STL: %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "vertex 1.000000 2.000000 3.000000") {
+		t.Fatalf("assembled STL missing transformed GLTF origin vertex:\n%s", text)
+	}
+	if !strings.Contains(text, "vertex 3.000000 2.000000 3.000000") {
+		t.Fatalf("assembled STL missing transformed GLTF x vertex:\n%s", text)
+	}
+	if !strings.Contains(text, "facet normal 0.000000 0.000000 1.000000") {
+		t.Fatalf("assembled STL missing GLTF facet normal:\n%s", text)
+	}
+}
+
 func TestArtifactBuilderAssemblesSTLFrom3MFPlacement(t *testing.T) {
 	sourceDir := t.TempDir()
 	sourcePath := filepath.Join(sourceDir, "blade.3mf")
@@ -390,6 +438,34 @@ func writeArtifactGLB(t *testing.T, path string, positions []float32) {
 
 	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
 		t.Fatalf("write GLB: %v", err)
+	}
+}
+
+func writeArtifactGLTF(t *testing.T, path string) {
+	t.Helper()
+
+	var binChunk bytes.Buffer
+	for _, value := range []float32{
+		0, 0, 0,
+		1, 0, 0,
+		0, 1, 0,
+	} {
+		if err := binary.Write(&binChunk, binary.LittleEndian, value); err != nil {
+			t.Fatalf("write GLTF position: %v", err)
+		}
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(binChunk.Bytes())
+	raw := fmt.Sprintf(`{
+		"asset":{"version":"2.0"},
+		"buffers":[{"uri":"data:application/octet-stream;base64,%s","byteLength":%d}],
+		"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":%d}],
+		"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3"}],
+		"meshes":[{"primitives":[{"attributes":{"POSITION":0},"mode":4}]}]
+	}`, encoded, binChunk.Len(), binChunk.Len())
+
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatalf("write GLTF: %v", err)
 	}
 }
 

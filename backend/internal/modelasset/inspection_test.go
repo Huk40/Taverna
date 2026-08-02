@@ -133,13 +133,13 @@ func TestInspectGeometryParsesGLBBounds(t *testing.T) {
 	}
 }
 
-func TestInspectGeometryMarksUnsupportedFormatsStored(t *testing.T) {
-	metadata := InspectGeometry("unused.gltf", FormatGLTF)
-	if metadata.Status != "stored" {
+func TestInspectGeometryMarksUnknownFormatsUnknown(t *testing.T) {
+	metadata := InspectGeometry("unused.fbx", "fbx")
+	if metadata.Status != "unknown" {
 		t.Fatalf("status = %q", metadata.Status)
 	}
 	if len(metadata.Warnings) == 0 {
-		t.Fatal("expected warning for unsupported geometry metadata parser")
+		t.Fatal("expected warning for unknown geometry metadata parser")
 	}
 }
 

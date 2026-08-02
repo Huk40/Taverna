@@ -111,11 +111,19 @@ func TestValidateUploadGeometryRejectsMissingTriangles(t *testing.T) {
 	}
 }
 
-func TestValidateUploadGeometryAllowsMetadataOnlyFormats(t *testing.T) {
-	for _, format := range []string{FormatGLTF} {
-		if err := validateUploadGeometry(format, GeometryMetadata{Status: "stored"}); err != nil {
-			t.Fatalf("validateUploadGeometry(%q) error = %v", format, err)
-		}
+func TestValidateUploadGeometryIgnoresUnknownFormats(t *testing.T) {
+	if err := validateUploadGeometry("fbx", GeometryMetadata{Status: "stored"}); err != nil {
+		t.Fatalf("validateUploadGeometry() error = %v", err)
+	}
+}
+
+func TestValidateUploadGeometryRequiresParsedGLTF(t *testing.T) {
+	err := validateUploadGeometry(FormatGLTF, GeometryMetadata{Status: "stored"})
+	if err == nil {
+		t.Fatal("expected stored GLTF geometry to fail")
+	}
+	if err.Error() != "file does not contain readable GLTF triangle geometry: geometry status is stored" {
+		t.Fatalf("error = %q", err.Error())
 	}
 }
 
