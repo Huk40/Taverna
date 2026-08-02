@@ -39,6 +39,7 @@ import type {
   Part,
   PrintReadiness,
   Project,
+  ResolvedAssemblyPlacement,
   SlotID,
   Vector3Tuple,
 } from "./types";
@@ -306,10 +307,12 @@ function renderInspector(props: InspectorProps) {
     case "assembly":
       return (
         <AssemblyPanel
+          assemblyManifest={props.assemblyManifest}
           assemblyTargets={props.assemblyTargets}
           config={props.config}
           modelAssets={props.modelAssets}
           onAddAssemblyPlacement={props.onAddAssemblyPlacement}
+          onRefreshAssemblyManifest={props.onRefreshAssemblyManifest}
           onRemoveAssemblyPlacement={props.onRemoveAssemblyPlacement}
           onUpdateAssemblyPlacement={props.onUpdateAssemblyPlacement}
         />
@@ -881,27 +884,39 @@ function AssetAnchorEditor({ anchors, metadata, title, onChange }: AssetAnchorEd
 }
 
 type AssemblyPanelProps = {
+  assemblyManifest: AssemblyManifest | null;
   assemblyTargets: AssemblyPointTarget[];
   config: CharacterConfig;
   modelAssets: ModelAsset[];
   onAddAssemblyPlacement: (asset: ModelAsset) => void;
+  onRefreshAssemblyManifest: () => void;
   onRemoveAssemblyPlacement: (id: string) => void;
   onUpdateAssemblyPlacement: (id: string, patch: Partial<AssemblyPlacement>) => void;
 };
 
 function AssemblyPanel({
+  assemblyManifest,
   assemblyTargets,
   config,
   modelAssets,
   onAddAssemblyPlacement,
+  onRefreshAssemblyManifest,
   onRemoveAssemblyPlacement,
   onUpdateAssemblyPlacement,
 }: AssemblyPanelProps) {
   const assetsByID = useMemo(() => new Map(modelAssets.map((asset) => [asset.id, asset])), [modelAssets]);
+  const resolvedPlacementsByID = useMemo(
+    () => new Map((assemblyManifest?.placements ?? []).map((placement) => [placement.id, placement])),
+    [assemblyManifest],
+  );
 
   return (
     <div className="inspector-content">
       <PanelHeading title="Assembly" subtitle="Attach uploaded models to stable character assembly points" />
+      <button className="wide-command" type="button" onClick={onRefreshAssemblyManifest}>
+        <RefreshCw size={18} />
+        Preview server assembly
+      </button>
       <div className="assembly-source-list">
         {modelAssets.map((asset) => (
           <button className="part-card compact" type="button" key={asset.id} onClick={() => onAddAssemblyPlacement(asset)}>
@@ -927,6 +942,7 @@ function AssemblyPanel({
           const selectedAssetPointID = assetPoints.some((point) => point.id === placement.asset_point_id)
             ? placement.asset_point_id
             : assetPoints[0]?.id ?? "";
+          const resolvedPlacement = resolvedPlacementsByID.get(placement.id);
           return (
             <article className="placement-card" key={placement.id}>
               <div className="asset-title-row">
@@ -1001,10 +1017,52 @@ function AssemblyPanel({
                   }
                 />
               </label>
+              {resolvedPlacement && <ResolvedPlacementSummary placement={resolvedPlacement} />}
             </article>
           );
         })}
         {config.assembly.placements.length === 0 && <p className="empty-state">No assembly placements yet</p>}
+      </div>
+    </div>
+  );
+}
+
+type ResolvedPlacementSummaryProps = {
+  placement: ResolvedAssemblyPlacement;
+};
+
+function ResolvedPlacementSummary({ placement }: ResolvedPlacementSummaryProps) {
+  return (
+    <div className="resolved-placement-summary">
+      <div className="readiness-heading">
+        <strong>Server resolved</strong>
+        <span className="readiness-ok">Preview</span>
+      </div>
+      <div className="geometry-grid">
+        <span>
+          Socket
+          <strong>{formatVector(placement.socket_transform.position)}</strong>
+        </span>
+        <span>
+          Anchor
+          <strong>{placement.asset_point.label || placement.asset_point_id}</strong>
+        </span>
+        <span>
+          World pos
+          <strong>{formatVector(placement.world_transform.position)}</strong>
+        </span>
+        <span>
+          World rot
+          <strong>{formatVector(placement.world_transform.rotation)}</strong>
+        </span>
+        <span>
+          World scale
+          <strong>{formatGeometryNumber(placement.world_transform.scale)}</strong>
+        </span>
+        <span>
+          Bounds
+          <strong>{placement.world_bounds ? formatVector(placement.world_bounds.size) : "pending"}</strong>
+        </span>
       </div>
     </div>
   );

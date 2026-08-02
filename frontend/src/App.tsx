@@ -329,6 +329,7 @@ export default function App() {
     }
 
     setConfig((current) => normalizeConfig(withSelection(current, slot, partID), catalog));
+    setAssemblyManifest(null);
   }
 
   function updateScale(value: number) {
@@ -336,6 +337,7 @@ export default function App() {
       return;
     }
     setConfig((current) => normalizeConfig({ ...current, scale: { mm: value } }, catalog));
+    setAssemblyManifest(null);
   }
 
   function updateColor(zone: string, value: string) {
