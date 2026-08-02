@@ -234,7 +234,7 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	points, err := decodeAssemblyPoints(r.FormValue("assembly_points"), attachmentPoint)
+	customPoints, hasCustomPoints, err := decodeAssemblyPoints(r.FormValue("assembly_points"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -278,6 +278,10 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 	metadata := InspectGeometry(storagePath, format)
 	if metadata.Status == "error" {
 		h.logger.Warn("model asset geometry inspection failed", "file_name", originalName, "format", format, "warnings", metadata.Warnings)
+	}
+	points := customPoints
+	if !hasCustomPoints {
+		points = suggestedAssemblyPoints(metadata, slot, attachmentPoint)
 	}
 
 	request := CreateRequest{
@@ -374,22 +378,96 @@ func assetStoragePath(asset ModelAsset) string {
 	return asset.StoragePath
 }
 
-func decodeAssemblyPoints(raw string, fallbackPoint string) ([]AssemblyPoint, error) {
+func decodeAssemblyPoints(raw string) ([]AssemblyPoint, bool, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return []AssemblyPoint{{
-			ID:       fallbackPoint,
-			Label:    fallbackPoint,
-			Position: Vector3{0, 0, 0},
-			Rotation: Vector3{0, 0, 0},
-		}}, nil
+		return nil, false, nil
 	}
 
 	var points []AssemblyPoint
 	if err := json.Unmarshal([]byte(raw), &points); err != nil {
-		return nil, errors.New("assembly_points must be valid JSON")
+		return nil, true, errors.New("assembly_points must be valid JSON")
 	}
-	return normalizeAssemblyPoints(points)
+	normalized, err := normalizeAssemblyPoints(points)
+	return normalized, true, err
+}
+
+func suggestedAssemblyPoints(metadata GeometryMetadata, slot string, fallbackPoint string) []AssemblyPoint {
+	bounds := metadata.Bounds
+	if metadata.Status != "parsed" || bounds == nil || !boundsFitsAssemblyPointRange(*bounds) {
+		return fallbackAssemblyPoints(fallbackPoint)
+	}
+
+	min := bounds.Min
+	max := bounds.Max
+	center := bounds.Center
+	points := make([]AssemblyPoint, 0, 8)
+	addPoint := func(id string, label string, position Vector3) {
+		id = strings.TrimSpace(id)
+		if id == "" || len(points) >= 8 {
+			return
+		}
+		for _, point := range points {
+			if point.ID == id {
+				return
+			}
+		}
+		points = append(points, AssemblyPoint{
+			ID:       id,
+			Label:    label,
+			Position: roundGeometryVector(position),
+			Rotation: Vector3{0, 0, 0},
+		})
+	}
+
+	switch slot {
+	case "gear":
+		addPoint("grip", "Grip", Vector3{center[0], min[1], center[2]})
+	case "head":
+		addPoint("neck", "Neck", Vector3{center[0], min[1], center[2]})
+	case "base", "stage":
+		addPoint("contact", "Contact", Vector3{center[0], min[1], center[2]})
+	case "body", "clothing":
+		addPoint("mount", "Mount", center)
+	default:
+		addPoint("origin", "Origin", Vector3{0, 0, 0})
+	}
+
+	addPoint("origin", "Origin", Vector3{0, 0, 0})
+	addPoint("center", "Center", center)
+	addPoint("bottom", "Bottom", Vector3{center[0], min[1], center[2]})
+	addPoint("top", "Top", Vector3{center[0], max[1], center[2]})
+	addPoint("left", "Left", Vector3{min[0], center[1], center[2]})
+	addPoint("right", "Right", Vector3{max[0], center[1], center[2]})
+	addPoint("front", "Front", Vector3{center[0], center[1], max[2]})
+	addPoint("back", "Back", Vector3{center[0], center[1], min[2]})
+
+	if len(points) == 0 {
+		return fallbackAssemblyPoints(fallbackPoint)
+	}
+	return points
+}
+
+func fallbackAssemblyPoints(fallbackPoint string) []AssemblyPoint {
+	fallbackPoint = strings.TrimSpace(fallbackPoint)
+	if fallbackPoint == "" {
+		fallbackPoint = "origin"
+	}
+	return []AssemblyPoint{{
+		ID:       fallbackPoint,
+		Label:    fallbackPoint,
+		Position: Vector3{0, 0, 0},
+		Rotation: Vector3{0, 0, 0},
+	}}
+}
+
+func boundsFitsAssemblyPointRange(bounds GeometryBounds) bool {
+	for _, vector := range []Vector3{bounds.Min, bounds.Max, bounds.Center} {
+		if err := validateAssemblyPointVector(vector, -20, 20); err != nil {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeAssemblyPoints(points []AssemblyPoint) ([]AssemblyPoint, error) {

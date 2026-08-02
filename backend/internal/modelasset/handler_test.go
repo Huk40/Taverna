@@ -26,11 +26,45 @@ func TestFormatForFileName(t *testing.T) {
 	}
 }
 
-func TestDecodeAssemblyPointsUsesFallback(t *testing.T) {
-	points, err := decodeAssemblyPoints("", "right_hand")
+func TestDecodeAssemblyPointsMarksMissingPayload(t *testing.T) {
+	points, provided, err := decodeAssemblyPoints("")
 	if err != nil {
 		t.Fatalf("decodeAssemblyPoints() error = %v", err)
 	}
+	if provided {
+		t.Fatal("empty assembly_points should not be marked as provided")
+	}
+	if len(points) != 0 {
+		t.Fatalf("expected no custom points, got %d", len(points))
+	}
+}
+
+func TestSuggestedAssemblyPointsUsesParsedBounds(t *testing.T) {
+	points := suggestedAssemblyPoints(GeometryMetadata{
+		Status: "parsed",
+		Bounds: &GeometryBounds{
+			Min:    Vector3{-0.2, -0.6, -0.1},
+			Max:    Vector3{0.2, 1.1, 0.1},
+			Center: Vector3{0, 0.25, 0},
+		},
+	}, "gear", "right_hand")
+
+	if len(points) < 4 {
+		t.Fatalf("expected bounds-derived anchor presets, got %d", len(points))
+	}
+	if points[0].ID != "grip" {
+		t.Fatalf("first suggested point id = %q", points[0].ID)
+	}
+	if points[0].Position != (Vector3{0, -0.6, 0}) {
+		t.Fatalf("grip point position = %v", points[0].Position)
+	}
+	if points[1].ID != "origin" {
+		t.Fatalf("second suggested point id = %q", points[1].ID)
+	}
+}
+
+func TestSuggestedAssemblyPointsFallsBackWithoutBounds(t *testing.T) {
+	points := suggestedAssemblyPoints(GeometryMetadata{Status: "stored"}, "gear", "right_hand")
 	if len(points) != 1 {
 		t.Fatalf("expected one fallback point, got %d", len(points))
 	}
@@ -40,15 +74,18 @@ func TestDecodeAssemblyPointsUsesFallback(t *testing.T) {
 }
 
 func TestDecodeAssemblyPointsRejectsInvalidJSON(t *testing.T) {
-	if _, err := decodeAssemblyPoints("{", "right_hand"); err == nil {
+	if _, _, err := decodeAssemblyPoints("{"); err == nil {
 		t.Fatal("expected invalid JSON to fail")
 	}
 }
 
 func TestDecodeAssemblyPointsNormalizesCustomPoints(t *testing.T) {
-	points, err := decodeAssemblyPoints(`[{"id":" grip ","label":"","position":[0.1,0,0],"rotation":[0,15,0]}]`, "right_hand")
+	points, provided, err := decodeAssemblyPoints(`[{"id":" grip ","label":"","position":[0.1,0,0],"rotation":[0,15,0]}]`)
 	if err != nil {
 		t.Fatalf("decodeAssemblyPoints() error = %v", err)
+	}
+	if !provided {
+		t.Fatal("custom assembly_points should be marked as provided")
 	}
 	if len(points) != 1 {
 		t.Fatalf("expected one point, got %d", len(points))
@@ -66,14 +103,14 @@ func TestDecodeAssemblyPointsNormalizesCustomPoints(t *testing.T) {
 
 func TestDecodeAssemblyPointsRejectsDuplicateIDs(t *testing.T) {
 	raw := `[{"id":"grip","label":"Grip","position":[0,0,0],"rotation":[0,0,0]},{"id":"grip","label":"Grip 2","position":[0,0,0],"rotation":[0,0,0]}]`
-	if _, err := decodeAssemblyPoints(raw, "right_hand"); err == nil {
+	if _, _, err := decodeAssemblyPoints(raw); err == nil {
 		t.Fatal("expected duplicate IDs to fail")
 	}
 }
 
 func TestDecodeAssemblyPointsRejectsOutOfRangePosition(t *testing.T) {
 	raw := `[{"id":"grip","label":"Grip","position":[21,0,0],"rotation":[0,0,0]}]`
-	if _, err := decodeAssemblyPoints(raw, "right_hand"); err == nil {
+	if _, _, err := decodeAssemblyPoints(raw); err == nil {
 		t.Fatal("expected out-of-range position to fail")
 	}
 }

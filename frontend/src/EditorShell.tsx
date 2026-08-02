@@ -490,7 +490,7 @@ function AssetPanel({
   const [label, setLabel] = useState("");
   const [slot, setSlot] = useState<SlotID>((slotOptions[0] ?? "gear") as SlotID);
   const [attachmentPoint, setAttachmentPoint] = useState("right_hand");
-  const [anchors, setAnchors] = useState<ModelAssetAssemblyPoint[]>(() => [defaultUploadAnchor(1)]);
+  const [anchors, setAnchors] = useState<ModelAssetAssemblyPoint[]>([]);
   const [editingAssetID, setEditingAssetID] = useState<string | null>(null);
   const [editLabel, setEditLabel] = useState("");
   const [editAnchors, setEditAnchors] = useState<ModelAssetAssemblyPoint[]>(() => [defaultUploadAnchor(1)]);
@@ -510,7 +510,7 @@ function AssetPanel({
     onUploadAsset(file, label || stripExtension(file.name), slot, selectedAttachmentPoint, normalizeUploadAnchors(anchors));
     setFile(null);
     setLabel("");
-    setAnchors([defaultUploadAnchor(1)]);
+    setAnchors([]);
   }
 
   function startEditingAsset(asset: ModelAsset) {
@@ -601,7 +601,19 @@ function AssetPanel({
             ))}
           </select>
         </label>
-        <AssetAnchorEditor anchors={anchors} title="Asset anchors" onChange={setAnchors} />
+        {anchors.length > 0 ? (
+          <AssetAnchorEditor anchors={anchors} title="Asset anchors" onChange={setAnchors} />
+        ) : (
+          <div className="anchor-editor">
+            <div className="asset-title-row">
+              <strong>Asset anchors</strong>
+              <button className="icon-button small" type="button" onClick={() => setAnchors([defaultUploadAnchor(1)])} title="Add custom asset anchor">
+                <Plus size={16} />
+              </button>
+            </div>
+            <p className="empty-state">Server will suggest anchors from parsed geometry bounds</p>
+          </div>
+        )}
         <button className="wide-command primary-action" type="submit" disabled={!file || !selectedAttachmentPoint || isUploadingAsset}>
           <UploadCloud size={18} />
           {isUploadingAsset ? "Uploading..." : "Upload and attach"}
