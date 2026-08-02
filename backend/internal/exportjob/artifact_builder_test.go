@@ -1,6 +1,7 @@
 package exportjob
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/binary"
 	"fmt"
@@ -282,6 +283,53 @@ func TestArtifactBuilderAssemblesSTLFromGLBPlacement(t *testing.T) {
 	}
 }
 
+func TestArtifactBuilderAssemblesSTLFrom3MFPlacement(t *testing.T) {
+	sourceDir := t.TempDir()
+	sourcePath := filepath.Join(sourceDir, "blade.3mf")
+	writeArtifact3MF(t, sourcePath)
+
+	builder := NewArtifactBuilder(t.TempDir())
+	result, err := builder.Build("job-1", assembly.Manifest{
+		ProjectID: "project-1",
+		Placements: []assembly.ResolvedPlacement{{
+			ID: "placement-1",
+			Asset: assembly.ModelAssetRef{
+				ID:          "asset-1",
+				Label:       "Blade",
+				FileName:    "blade.3mf",
+				Format:      modelasset.Format3MF,
+				StoragePath: sourcePath,
+			},
+			WorldTransform: assembly.Transform{
+				Position: [3]float64{1, 2, 3},
+				Rotation: [3]float64{0, 0, 0},
+				Scale:    2,
+			},
+		}},
+	}, "stl")
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if len(result.IncludedAssets) != 1 || result.IncludedAssets[0] != "asset-1" {
+		t.Fatalf("included assets = %v", result.IncludedAssets)
+	}
+
+	raw, err := os.ReadFile(result.StoragePath)
+	if err != nil {
+		t.Fatalf("read assembled STL: %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "vertex 1.000000 2.000000 3.000000") {
+		t.Fatalf("assembled STL missing transformed 3MF origin vertex:\n%s", text)
+	}
+	if !strings.Contains(text, "vertex 3.000000 2.000000 3.000000") {
+		t.Fatalf("assembled STL missing transformed 3MF x vertex:\n%s", text)
+	}
+	if !strings.Contains(text, "facet normal 0.000000 0.000000 1.000000") {
+		t.Fatalf("assembled STL missing 3MF facet normal:\n%s", text)
+	}
+}
+
 func TestArtifactBuilderSkipsNonOBJAssets(t *testing.T) {
 	builder := NewArtifactBuilder(t.TempDir())
 	result, err := builder.Build("job-1", assembly.Manifest{
@@ -342,6 +390,48 @@ func writeArtifactGLB(t *testing.T, path string, positions []float32) {
 
 	if err := os.WriteFile(path, buffer.Bytes(), 0o600); err != nil {
 		t.Fatalf("write GLB: %v", err)
+	}
+}
+
+func writeArtifact3MF(t *testing.T, path string) {
+	t.Helper()
+
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create 3MF: %v", err)
+	}
+	archive := zip.NewWriter(file)
+	entry, err := archive.Create("3D/3dmodel.model")
+	if err != nil {
+		t.Fatalf("create 3MF model entry: %v", err)
+	}
+	if _, err := entry.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
+  <resources>
+    <object id="1" type="model">
+      <mesh>
+        <vertices>
+          <vertex x="0" y="0" z="0"/>
+          <vertex x="1" y="0" z="0"/>
+          <vertex x="0" y="1" z="0"/>
+        </vertices>
+        <triangles>
+          <triangle v1="0" v2="1" v3="2"/>
+        </triangles>
+      </mesh>
+    </object>
+  </resources>
+  <build>
+    <item objectid="1"/>
+  </build>
+</model>`)); err != nil {
+		t.Fatalf("write 3MF model XML: %v", err)
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatalf("close 3MF archive: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close 3MF file: %v", err)
 	}
 }
 

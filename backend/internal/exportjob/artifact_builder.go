@@ -156,7 +156,7 @@ func (b *ArtifactBuilder) buildSTL(jobID string, manifest assembly.Manifest) (Ar
 	}
 
 	for _, placement := range manifest.Placements {
-		if placement.Asset.Format != modelasset.FormatOBJ && placement.Asset.Format != modelasset.FormatSTL && placement.Asset.Format != modelasset.FormatGLB {
+		if placement.Asset.Format != modelasset.FormatOBJ && placement.Asset.Format != modelasset.FormatSTL && placement.Asset.Format != modelasset.FormatGLB && placement.Asset.Format != modelasset.Format3MF {
 			result.SkippedAssets = append(result.SkippedAssets, placement.Asset.ID)
 			result.Warnings = append(result.Warnings, fmt.Sprintf("asset %s has format %s and was skipped by STL assembler", placement.Asset.ID, placement.Asset.Format))
 			continue
@@ -181,7 +181,7 @@ func (b *ArtifactBuilder) buildSTL(jobID string, manifest assembly.Manifest) (Ar
 	}
 
 	if len(result.IncludedAssets) == 0 {
-		result.Warnings = append(result.Warnings, "no OBJ, STL, or GLB assets were included in the assembled artifact")
+		result.Warnings = append(result.Warnings, "no OBJ, STL, GLB, or 3MF assets were included in the assembled artifact")
 	}
 
 	if _, err := fmt.Fprintf(writer, "endsolid %s\n", solidName); err != nil {
@@ -304,6 +304,8 @@ func appendSTLPlacement(writer *bufio.Writer, placement assembly.ResolvedPlaceme
 		return appendSTLFilePlacement(writer, placement)
 	case modelasset.FormatGLB:
 		return appendGLBAsSTL(writer, placement)
+	case modelasset.Format3MF:
+		return append3MFAsSTL(writer, placement)
 	default:
 		return 0, fmt.Errorf("asset %s has unsupported STL assembly format %s", placement.Asset.ID, placement.Asset.Format)
 	}
@@ -313,6 +315,24 @@ func appendGLBAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) 
 	triangles, err := modelasset.ReadGLBTriangles(placement.Asset.StoragePath)
 	if err != nil {
 		return 0, fmt.Errorf("read asset %s GLB triangles: %w", placement.Asset.ID, err)
+	}
+
+	for _, triangle := range triangles {
+		a := applyTransform(vector3ToArray(triangle[0]), placement.WorldTransform, true)
+		b := applyTransform(vector3ToArray(triangle[1]), placement.WorldTransform, true)
+		c := applyTransform(vector3ToArray(triangle[2]), placement.WorldTransform, true)
+		if err := writeSTLFacet(writer, a, b, c); err != nil {
+			return 0, err
+		}
+	}
+
+	return len(triangles), nil
+}
+
+func append3MFAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) (int, error) {
+	triangles, err := modelasset.Read3MFTriangles(placement.Asset.StoragePath)
+	if err != nil {
+		return 0, fmt.Errorf("read asset %s 3MF triangles: %w", placement.Asset.ID, err)
 	}
 
 	for _, triangle := range triangles {

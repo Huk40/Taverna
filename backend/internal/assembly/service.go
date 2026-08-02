@@ -92,10 +92,6 @@ func (s *Service) ManifestForConfig(ctx context.Context, projectID string, confi
 		if worldBounds != nil {
 			manifestBounds.AddBounds(*worldBounds)
 		}
-		if asset.Format == modelasset.Format3MF {
-			manifest.Warnings = append(manifest.Warnings, fmt.Sprintf("asset %s is 3MF and currently resolves as a manifest-only placement", asset.ID))
-		}
-
 		manifest.Placements = append(manifest.Placements, ResolvedPlacement{
 			ID:              placement.ID,
 			Slot:            placement.Slot,

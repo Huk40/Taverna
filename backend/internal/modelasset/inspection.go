@@ -29,7 +29,9 @@ func InspectGeometry(path string, format string) GeometryMetadata {
 		metadata, err = inspectSTLGeometry(path)
 	case FormatGLB:
 		metadata, err = inspectGLBGeometry(path)
-	case FormatGLTF, Format3MF:
+	case Format3MF:
+		metadata, err = inspect3MFGeometry(path)
+	case FormatGLTF:
 		return normalizeGeometryMetadata(GeometryMetadata{
 			Status:   "stored",
 			Source:   format,

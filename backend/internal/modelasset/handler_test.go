@@ -112,10 +112,20 @@ func TestValidateUploadGeometryRejectsMissingTriangles(t *testing.T) {
 }
 
 func TestValidateUploadGeometryAllowsMetadataOnlyFormats(t *testing.T) {
-	for _, format := range []string{FormatGLTF, Format3MF} {
+	for _, format := range []string{FormatGLTF} {
 		if err := validateUploadGeometry(format, GeometryMetadata{Status: "stored"}); err != nil {
 			t.Fatalf("validateUploadGeometry(%q) error = %v", format, err)
 		}
+	}
+}
+
+func TestValidateUploadGeometryRequiresParsed3MF(t *testing.T) {
+	err := validateUploadGeometry(Format3MF, GeometryMetadata{Status: "stored"})
+	if err == nil {
+		t.Fatal("expected stored 3MF geometry to fail")
+	}
+	if err.Error() != "file does not contain readable 3MF triangle geometry: geometry status is stored" {
+		t.Fatalf("error = %q", err.Error())
 	}
 }
 

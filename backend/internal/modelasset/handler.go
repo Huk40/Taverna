@@ -399,7 +399,7 @@ func decodeAssemblyPoints(raw string) ([]AssemblyPoint, bool, error) {
 
 func validateUploadGeometry(format string, metadata GeometryMetadata) error {
 	switch strings.TrimSpace(strings.ToLower(format)) {
-	case FormatOBJ, FormatSTL, FormatGLB:
+	case FormatOBJ, FormatSTL, FormatGLB, Format3MF:
 	default:
 		return nil
 	}
