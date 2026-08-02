@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { ThreeMFLoader } from "three/examples/jsm/loaders/3MFLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
@@ -296,7 +297,7 @@ function addAssemblyPlacements(
     const placeholder = createUploadedPlaceholder(asset?.format ?? "missing");
     socket.add(placeholder);
 
-    if (!asset || asset.format === "3mf") {
+    if (!asset) {
       continue;
     }
 
@@ -501,6 +502,10 @@ async function loadUploadedModel(asset: ModelAsset): Promise<THREE.Object3D> {
     );
     mesh.castShadow = true;
     return prepareUploadedObject(mesh, preserveCoordinates);
+  }
+  if (asset.format === "3mf") {
+    const object = await new ThreeMFLoader().loadAsync(url);
+    return prepareUploadedObject(object, preserveCoordinates);
   }
   return createUploadedPlaceholder(asset.format);
 }

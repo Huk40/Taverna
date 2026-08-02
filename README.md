@@ -2,7 +2,7 @@
 
 Taverna - MVP+ веб-сервиса для редактирования 3D-фигурки персонажа по catalog-driven архитектуре, близкой к базовым принципам Hero Forge: каталог совместимых частей, версионированная конфигурация персонажа, 3D-preview, сохранение проекта и основа export pipeline под будущую 3D-печать.
 
-Текущая версия остается небольшой, но уже строится вокруг backend-каталога: frontend загружает slots, parts, color zones, compatibility rules и пользовательские 3D assets через API, пользователь собирает персонажа в Hero Forge-style editor shell с категориями, карточками parts и assembly placements, сохраняет JSONB-конфигурацию в PostgreSQL, открывает проект по share link и может создать fake export job как подготовку к будущему STL/GLB/3MF worker.
+Текущая версия остается небольшой, но уже строится вокруг backend-каталога: frontend загружает slots, parts, color zones, compatibility rules и пользовательские 3D assets через API, пользователь собирает персонажа в Hero Forge-style editor shell с категориями, карточками parts и assembly placements, сохраняет JSONB-конфигурацию в PostgreSQL, открывает проект по share link и может создать export job с MVP OBJ/STL artifact как подготовку к будущему mesh worker.
 
 ## Запуск
 
@@ -134,11 +134,11 @@ Model asset endpoints:
 
 In the frontend upload flow, a successfully uploaded model is immediately added to `config.assembly.placements` at the selected `attachment_point`, so the user can see and tune the assembled asset without an extra manual add step.
 
-When an uploaded OBJ/STL/GLB asset has parsed bounds, the asset anchor editor offers position presets such as center, bottom, top, left, right, front, and back. These presets are stored as normal `assembly_points` and make it faster to align the model to character sockets.
+When an uploaded OBJ/STL/GLB/3MF asset has parsed bounds, the asset anchor editor offers position presets such as center, bottom, top, left, right, front, and back. These presets are stored as normal `assembly_points` and make it faster to align the model to character sockets.
 
-When uploaded OBJ/STL/GLB assets have parsed geometry metadata, the assembly manifest also includes per-placement `world_bounds` and combined manifest `bounds`, both computed from the resolved `world_transform`.
+When uploaded OBJ/STL/GLB/3MF assets have parsed geometry metadata, the assembly manifest also includes per-placement `world_bounds` and combined manifest `bounds`, both computed from the resolved `world_transform`.
 
-Uploaded model asset responses include `metadata` with server-inspected geometry for OBJ, embedded-bin GLB, and ASCII/binary STL files: parser status, source type, bounds (`min`, `max`, `size`, `center`), vertex count, face count, triangle count, and warnings. GLTF and 3MF are stored and exposed through the same API, but server-side geometry inspection for those formats is intentionally deferred to the future mesh worker.
+Uploaded model asset responses include `metadata` with server-inspected geometry for OBJ, embedded-bin GLB, ASCII/binary STL, and simple 3MF mesh files: parser status, source type, bounds (`min`, `max`, `size`, `center`), vertex count, face count, triangle count, and warnings. GLTF files are stored and exposed through the same API, but server-side geometry inspection for standalone GLTF is intentionally deferred to the future mesh worker.
 
 ## Assembly Manifest API
 
@@ -174,7 +174,7 @@ Export endpoints:
 
 На текущем этапе Redis, MinIO и отдельный mesh worker намеренно не подключены. API создает job, сразу завершает его metadata, включает краткий assembly summary и полный `assembly_manifest` по uploaded assets, затем сохраняет историю export jobs проекта, чтобы зафиксировать будущий контракт.
 
-Для первого физического artifact pipeline backend поддерживает `format: "obj"` и `format: "stl"`. OBJ export берет uploaded OBJ assets из assembly manifest, применяет рассчитанные `world_transform`, склеивает вершины/faces в один `.obj` и сохраняет файл в server storage. STL export создает ASCII `.stl`: uploaded ASCII/binary STL перечитываются как facets, а простые OBJ placements триангулируются в STL facets с пересчитанными normals. Для `.glb` и `.3mf` пока возвращается manifest-only artifact с предупреждением; полноценная конвертация этих форматов остается задачей будущего worker-а.
+Для первого физического artifact pipeline backend поддерживает `format: "obj"` и `format: "stl"`. OBJ export берет uploaded OBJ assets из assembly manifest, применяет рассчитанные `world_transform`, склеивает вершины/faces в один `.obj` и сохраняет файл в server storage. STL export создает ASCII `.stl`: uploaded ASCII/binary STL перечитываются как facets, простые OBJ placements триангулируются, а embedded-bin GLB и simple 3MF mesh placements конвертируются в STL facets с пересчитанными normals. Полноценная генерация GLB/3MF output остается задачей будущего worker-а.
 
 ## Share links
 
@@ -187,11 +187,11 @@ Export endpoints:
 - Versioned `CharacterConfig` со `schema_version: 1`.
 - User model asset upload API с локальным server storage.
 - Upload UI for multiple local asset anchors, persisted as `assembly_points`.
-- Server-inspected geometry metadata for uploaded OBJ, embedded-bin GLB, and ASCII/binary STL assets.
+- Server-inspected geometry metadata for uploaded OBJ, embedded-bin GLB, ASCII/binary STL, and simple 3MF mesh assets.
 - Assembly placements по точкам сборки (`right_hand`, `left_hand`, `head_mount`, `back_mount`, `base_mount`, `stage_anchor`).
 - Server-side assembly manifest API для будущего mesh worker.
 - Server-side assembled bounds in the assembly manifest for parsed uploaded assets.
-- MVP OBJ/STL artifact builder: собирает uploaded OBJ placements в downloadable `.obj`, а uploaded ASCII/binary STL и triangulated OBJ placements - в downloadable ASCII `.stl`.
+- MVP OBJ/STL artifact builder: собирает uploaded OBJ placements в downloadable `.obj`, а uploaded ASCII/binary STL, embedded-bin GLB, simple 3MF mesh и triangulated OBJ placements - в downloadable ASCII `.stl`.
 - Compatibility validation на backend.
 - Print-readiness summary на frontend с динамическим максимумом `scale.mm`.
 - Three.js preview, который реагирует на species, body, clothing, gear, pose, stage, base, scale, material zones и uploaded assembly assets.
