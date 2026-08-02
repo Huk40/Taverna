@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   createExport,
   createProject,
@@ -76,6 +76,7 @@ export default function App() {
   const [isUpdatingAsset, setIsUpdatingAsset] = useState(false);
   const [isUploadingAsset, setIsUploadingAsset] = useState(false);
   const [activeCategory, setActiveCategory] = useState<EditorCategory>("species");
+  const assemblyPreviewSequenceRef = useRef(0);
   const [status, setStatus] = useState("Готово");
 
   const partsBySlot = useMemo(() => groupPartsBySlot(catalog?.parts ?? []), [catalog]);
@@ -89,6 +90,37 @@ export default function App() {
   useEffect(() => {
     void boot();
   }, []);
+
+  useEffect(() => {
+    if (!catalog) {
+      return;
+    }
+
+    const normalized = normalizeConfig(config, catalog);
+    const sequence = assemblyPreviewSequenceRef.current + 1;
+    assemblyPreviewSequenceRef.current = sequence;
+
+    if (normalized.assembly.placements.length === 0) {
+      setAssemblyManifest(null);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void previewAssembly(normalized)
+        .then((manifest) => {
+          if (assemblyPreviewSequenceRef.current === sequence) {
+            setAssemblyManifest(manifest);
+          }
+        })
+        .catch(() => {
+          if (assemblyPreviewSequenceRef.current === sequence) {
+            setAssemblyManifest(null);
+          }
+        });
+    }, 350);
+
+    return () => window.clearTimeout(timeout);
+  }, [catalog, config]);
 
   async function boot() {
     setIsLoading(true);

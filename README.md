@@ -154,6 +154,8 @@ Uploaded model asset responses include `metadata` with server-inspected geometry
 
 `POST /api/assembly/preview` принимает `{ "config": CharacterConfig }` и возвращает такой же manifest с `project_id: "preview"`, чтобы frontend мог проверить текущую сборку по точкам до сохранения проекта.
 
+Frontend автоматически обновляет этот preview manifest при изменении `config.assembly.placements` и использует server-side `world_transform` в Three.js viewport, поэтому положение загруженных моделей в редакторе соответствует тому же transform contract, который использует export pipeline.
+
 Этот endpoint не генерирует новый mesh-файл сам по себе, но фиксирует серверный контракт сборки: какой пользовательский файл, в какой attachment point и с каким transform должен быть поставлен.
 
 ## Export API

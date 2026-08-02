@@ -6,28 +6,39 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { assetFileURL } from "./api";
-import type { AssemblyPlacement, CharacterConfig, ModelAsset, ModelAssetAssemblyPoint, Vector3Tuple } from "./types";
+import type {
+  AssemblyManifest,
+  AssemblyPlacement,
+  CharacterConfig,
+  ModelAsset,
+  ModelAssetAssemblyPoint,
+  ResolvedAssemblyPlacement,
+  Vector3Tuple,
+} from "./types";
 
 type Props = {
+  assemblyManifest: AssemblyManifest | null;
   config: CharacterConfig;
   modelAssets: ModelAsset[];
 };
 
-export default function CharacterPreview({ config, modelAssets }: Props) {
+export default function CharacterPreview({ assemblyManifest, config, modelAssets }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const assemblyManifestRef = useRef(assemblyManifest);
   const configRef = useRef(config);
   const modelAssetsRef = useRef(modelAssets);
   const modelRef = useRef<THREE.Group | null>(null);
   const rebuildTokenRef = useRef(0);
 
   useEffect(() => {
+    assemblyManifestRef.current = assemblyManifest;
     configRef.current = config;
     modelAssetsRef.current = modelAssets;
     if (modelRef.current) {
       const token = bumpRebuildToken(rebuildTokenRef);
-      rebuildModel(modelRef.current, config, modelAssets, () => token === rebuildTokenRef.current);
+      rebuildModel(modelRef.current, config, modelAssets, assemblyManifest, () => token === rebuildTokenRef.current);
     }
-  }, [config, modelAssets]);
+  }, [assemblyManifest, config, modelAssets]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -78,7 +89,7 @@ export default function CharacterPreview({ config, modelAssets }: Props) {
     modelRef.current = model;
     scene.add(model);
     const initialToken = bumpRebuildToken(rebuildTokenRef);
-    rebuildModel(model, configRef.current, modelAssetsRef.current, () => initialToken === rebuildTokenRef.current);
+    rebuildModel(model, configRef.current, modelAssetsRef.current, assemblyManifestRef.current, () => initialToken === rebuildTokenRef.current);
 
     const resize = () => {
       const parent = canvas.parentElement;
@@ -129,7 +140,13 @@ export default function CharacterPreview({ config, modelAssets }: Props) {
   return <canvas ref={canvasRef} className="preview-canvas" aria-label="3D preview" />;
 }
 
-function rebuildModel(group: THREE.Group, config: CharacterConfig, modelAssets: ModelAsset[], isCurrent: () => boolean) {
+function rebuildModel(
+  group: THREE.Group,
+  config: CharacterConfig,
+  modelAssets: ModelAsset[],
+  assemblyManifest: AssemblyManifest | null,
+  isCurrent: () => boolean,
+) {
   while (group.children.length) {
     const child = group.children.pop();
     if (child) {
@@ -230,7 +247,7 @@ function rebuildModel(group: THREE.Group, config: CharacterConfig, modelAssets: 
     }
   }
 
-  addAssemblyPlacements(group, config, modelAssets, bodyHeight, isCurrent);
+  addAssemblyPlacements(group, config, modelAssets, assemblyManifest, bodyHeight, scale, isCurrent);
 }
 
 function createLimb(material: THREE.Material, radius: number, height: number) {
@@ -283,16 +300,20 @@ function addAssemblyPlacements(
   group: THREE.Group,
   config: CharacterConfig,
   modelAssets: ModelAsset[],
+  assemblyManifest: AssemblyManifest | null,
   bodyHeight: number,
+  characterScale: number,
   isCurrent: () => boolean,
 ) {
   const assetsByID = new Map(modelAssets.map((asset) => [asset.id, asset]));
+  const resolvedByID = new Map((assemblyManifest?.placements ?? []).map((placement) => [placement.id, placement]));
   for (const placement of config.assembly.placements) {
     const asset = assetsByID.get(placement.asset_id);
+    const resolvedPlacement = resolvedByID.get(placement.id);
     const socket = new THREE.Group();
-    applyPlacementTransform(socket, placement, asset, bodyHeight, config.pose);
+    applyPlacementTransform(socket, placement, asset, bodyHeight, config.pose, characterScale, resolvedPlacement);
     group.add(socket);
-    addAssemblyGuides(group, socket, placement, asset, bodyHeight, config.pose);
+    addAssemblyGuides(group, socket, placement, asset, bodyHeight, config.pose, characterScale, resolvedPlacement);
 
     const placeholder = createUploadedPlaceholder(asset?.format ?? "missing");
     socket.add(placeholder);
@@ -328,19 +349,25 @@ function addAssemblyGuides(
   asset: ModelAsset | undefined,
   bodyHeight: number,
   pose: string,
+  characterScale: number,
+  resolvedPlacement: ResolvedAssemblyPlacement | undefined,
 ) {
-  const base = attachmentBaseTransform(placement.attachment_point, bodyHeight, pose);
+  const base = resolvedPlacement ? resolvedBaseTransform(resolvedPlacement) : attachmentBaseTransform(placement.attachment_point, bodyHeight, pose);
+  const userTransform = resolvedPlacement?.user_transform ?? placement.transform;
   const targetMarker = createSocketTargetMarker();
-  targetMarker.position.copy(base.position.clone().add(tupleToVector3(placement.transform.position)));
+  targetMarker.position.copy(base.position.clone().add(tupleToVector3(userTransform.position)));
   targetMarker.rotation.set(
-    base.rotation.x + THREE.MathUtils.degToRad(placement.transform.rotation[0]),
-    base.rotation.y + THREE.MathUtils.degToRad(placement.transform.rotation[1]),
-    base.rotation.z + THREE.MathUtils.degToRad(placement.transform.rotation[2]),
+    base.rotation.x + THREE.MathUtils.degToRad(userTransform.rotation[0]),
+    base.rotation.y + THREE.MathUtils.degToRad(userTransform.rotation[1]),
+    base.rotation.z + THREE.MathUtils.degToRad(userTransform.rotation[2]),
   );
   group.add(targetMarker);
 
-  const assetPoint = selectedAssetPoint(asset, placement.asset_point_id);
-  const markerScale = 1 / Math.max(Math.abs(placement.transform.scale), 0.05);
+  const assetPoint = resolvedPlacement?.asset_point ?? selectedAssetPoint(asset, placement.asset_point_id);
+  const localPlacementScale = resolvedPlacement
+    ? resolvedPlacement.world_transform.scale / Math.max(characterScale, 0.0001)
+    : placement.transform.scale;
+  const markerScale = 1 / Math.max(Math.abs(localPlacementScale), 0.05);
   const anchorPosition = tupleToVector3(assetPoint.position);
 
   const anchorMarker = createAssetAnchorMarker(markerScale);
@@ -411,7 +438,28 @@ function createAnchorConnector(anchorPosition: THREE.Vector3, markerScale: numbe
   return connector;
 }
 
-function applyPlacementTransform(socket: THREE.Group, placement: AssemblyPlacement, asset: ModelAsset | undefined, bodyHeight: number, pose: string) {
+function applyPlacementTransform(
+  socket: THREE.Group,
+  placement: AssemblyPlacement,
+  asset: ModelAsset | undefined,
+  bodyHeight: number,
+  pose: string,
+  characterScale: number,
+  resolvedPlacement: ResolvedAssemblyPlacement | undefined,
+) {
+  if (resolvedPlacement) {
+    const world = resolvedPlacement.world_transform;
+    const scale = Math.max(characterScale, 0.0001);
+    socket.position.set(world.position[0] / scale, world.position[1] / scale, world.position[2] / scale);
+    socket.rotation.set(
+      THREE.MathUtils.degToRad(world.rotation[0]),
+      THREE.MathUtils.degToRad(world.rotation[1]),
+      THREE.MathUtils.degToRad(world.rotation[2]),
+    );
+    socket.scale.setScalar(world.scale / scale);
+    return;
+  }
+
   const base = attachmentBaseTransform(placement.attachment_point, bodyHeight, pose);
   const offset = tupleToVector3(placement.transform.position);
   const assetPoint = selectedAssetPoint(asset, placement.asset_point_id);
@@ -423,6 +471,18 @@ function applyPlacementTransform(socket: THREE.Group, placement: AssemblyPlaceme
   socket.scale.setScalar(placement.transform.scale);
   const anchorOffset = tupleToVector3(assetPoint.position).multiplyScalar(placement.transform.scale).applyEuler(socket.rotation);
   socket.position.copy(base.position.add(offset).sub(anchorOffset));
+}
+
+function resolvedBaseTransform(placement: ResolvedAssemblyPlacement) {
+  const socket = placement.socket_transform;
+  return {
+    position: tupleToVector3(socket.position),
+    rotation: new THREE.Euler(
+      THREE.MathUtils.degToRad(socket.rotation[0]),
+      THREE.MathUtils.degToRad(socket.rotation[1]),
+      THREE.MathUtils.degToRad(socket.rotation[2]),
+    ),
+  };
 }
 
 function selectedAssetPoint(asset: ModelAsset | undefined, requestedID: string): ModelAssetAssemblyPoint {

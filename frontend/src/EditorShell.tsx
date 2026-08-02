@@ -176,7 +176,7 @@ export default function EditorShell({
         <section className="preview-panel" aria-label="3D editor viewport">
           <div className="preview-stage">
             {!catalog && <div className="preview-overlay">Загрузка каталога</div>}
-            <CharacterPreview config={config} modelAssets={modelAssets} />
+            <CharacterPreview assemblyManifest={assemblyManifest} config={config} modelAssets={modelAssets} />
           </div>
           <div className="viewport-footer">
             <span>{categoryTitle(activeCategory, catalog)}</span>
