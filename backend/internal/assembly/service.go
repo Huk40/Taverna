@@ -67,7 +67,6 @@ func (s *Service) ManifestForConfig(ctx context.Context, projectID string, confi
 	}
 
 	bodyHeight := bodyHeightFor(config.Body)
-	manifestBounds := assemblyBoundsAccumulator{}
 	for _, placement := range config.Assembly.Placements {
 		asset, err := s.assets.Get(ctx, placement.AssetID)
 		if err != nil {
@@ -89,9 +88,6 @@ func (s *Service) ManifestForConfig(ctx context.Context, projectID string, confi
 		user := userTransform(placement.Transform)
 		world := composeWorldTransform(socket, user, assetPoint, characterScale)
 		worldBounds := transformGeometryBounds(asset.Metadata.Bounds, world)
-		if worldBounds != nil {
-			manifestBounds.AddBounds(*worldBounds)
-		}
 		manifest.Placements = append(manifest.Placements, ResolvedPlacement{
 			ID:              placement.ID,
 			Slot:            placement.Slot,
@@ -106,9 +102,52 @@ func (s *Service) ManifestForConfig(ctx context.Context, projectID string, confi
 			WorldBounds:     worldBounds,
 		})
 	}
+	attachHeadsToBody(manifest.Placements, characterScale)
+	manifestBounds := assemblyBoundsAccumulator{}
+	for _, placement := range manifest.Placements {
+		if placement.WorldBounds != nil {
+			manifestBounds.AddBounds(*placement.WorldBounds)
+		}
+	}
 	manifest.Bounds = manifestBounds.Bounds()
 
 	return manifest, nil
+}
+
+// A body can expose a head_mount anchor. Resolve it after all placements so a
+// head added before the body follows the same attachment as a head added later.
+func attachHeadsToBody(placements []ResolvedPlacement, characterScale float64) {
+	var neckSocket *Transform
+	for _, body := range placements {
+		if body.Slot != "body" {
+			continue
+		}
+		for _, point := range body.AssetPoints {
+			if point.ID != "head_mount" {
+				continue
+			}
+			position := applyTransform([3]float64(point.Position), body.WorldTransform)
+			socket := Transform{Scale: body.WorldTransform.Scale / characterScale}
+			for axis := range position {
+				socket.Position[axis] = position[axis] / characterScale
+				socket.Rotation[axis] = body.WorldTransform.Rotation[axis] + point.Rotation[axis]
+			}
+			neckSocket = &socket
+			break
+		}
+	}
+	if neckSocket == nil {
+		return
+	}
+	for index := range placements {
+		head := &placements[index]
+		if head.Slot != "head" || head.AttachmentPoint != "head_mount" {
+			continue
+		}
+		head.SocketTransform = *neckSocket
+		head.WorldTransform = composeWorldTransform(*neckSocket, head.UserTransform, head.AssetPoint, characterScale)
+		head.WorldBounds = transformGeometryBounds(head.Asset.Metadata.Bounds, head.WorldTransform)
+	}
 }
 
 func assetRef(asset modelasset.ModelAsset) ModelAssetRef {

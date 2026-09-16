@@ -17,7 +17,7 @@ import (
 	"taverna/backend/internal/project"
 )
 
-func NewRouter(projects *project.Handler, catalogHandler *catalog.Handler, exports *exportjob.Handler, modelAssets *modelasset.Handler, assemblyHandler *assembly.Handler, pool *pgxpool.Pool, allowedOrigins []string) http.Handler {
+func NewRouter(projects *project.Handler, catalogHandler *catalog.Handler, exports *exportjob.Handler, modelAssets *modelasset.Handler, assemblyHandler *assembly.Handler, pool *pgxpool.Pool, allowedOrigins []string, admin AdminAccess) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -45,9 +45,11 @@ func NewRouter(projects *project.Handler, catalogHandler *catalog.Handler, expor
 	mux.HandleFunc("/api/catalog/parts", catalogHandler.Parts)
 	mux.HandleFunc("/api/catalog/rules", catalogHandler.Rules)
 	mux.HandleFunc("/api/assembly/preview", assemblyHandler.PreviewAssembly)
-	mux.HandleFunc("/api/model-assets", modelAssets.Collection)
+	mux.HandleFunc("/api/exports/stl", exports.PrintSTL)
+	mux.HandleFunc("/api/admin/session", admin.session)
+	mux.HandleFunc("/api/model-assets", admin.protectAssetWrites(modelAssets.Collection))
 	mux.HandleFunc("/api/model-assets/assembly-points", modelAssets.AssemblyPoints)
-	mux.HandleFunc("/api/model-assets/", modelAssets.Item)
+	mux.HandleFunc("/api/model-assets/", admin.protectAssetWrites(modelAssets.Item))
 	mux.HandleFunc("/api/projects", projects.Collection)
 	mux.HandleFunc("/api/projects/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/exports") {
@@ -72,7 +74,7 @@ func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
 			if origin != "" && (len(allowedOrigins) == 0 || slices.Contains(allowedOrigins, origin)) {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Vary", "Origin")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 				w.Header().Set("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS")
 			}
 

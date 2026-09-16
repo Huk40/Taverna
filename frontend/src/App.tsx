@@ -1,9 +1,11 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
+  APIError,
   createExport,
   createProject,
   deleteModelAsset,
   deleteProject,
+  downloadSTL,
   getAssemblyPointTargets,
   getCatalog,
   getProject,
@@ -17,6 +19,7 @@ import {
   uploadModelAsset,
 } from "./api";
 import EditorShell from "./EditorShell";
+import { useAdminAccess } from "./AdminAccess";
 import type {
   AssemblyPlacement,
   AssemblyManifest,
@@ -36,13 +39,13 @@ import type {
 
 const fallbackConfig: CharacterConfig = {
   schema_version: 1,
-  species: "human_01",
-  body: "balanced_body_01",
-  head: "default_head_01",
-  clothing: "basic_armor_01",
-  gear: "sword_01",
-  pose: "idle_01",
-  stage: "plain_stage_01",
+  species: "",
+  body: "",
+  head: "",
+  clothing: "",
+  gear: "",
+  pose: "",
+  stage: "",
   base: "round_base_32mm",
   scale: { mm: 32 },
   product_target: "stl_print",
@@ -57,9 +60,10 @@ const fallbackConfig: CharacterConfig = {
   assembly: { placements: [] },
 };
 
-const editorSlots: SlotID[] = ["species", "head", "body", "clothing", "gear", "pose", "stage", "base"];
+const configSlots: SlotID[] = ["species", "body", "head", "clothing", "gear", "pose", "stage", "base", "product_target"];
 
 export default function App() {
+  const admin = useAdminAccess();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [projectName, setProjectName] = useState("Taverna hero");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -73,13 +77,21 @@ export default function App() {
   const [isSaving, setIsSaving] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [downloadMessage, setDownloadMessage] = useState("");
+  const [downloadError, setDownloadError] = useState("");
+  const downloadBusyRef = useRef(false);
   const [isUpdatingAsset, setIsUpdatingAsset] = useState(false);
   const [isUploadingAsset, setIsUploadingAsset] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<EditorCategory>("species");
+  const [activeCategory, setActiveCategory] = useState<EditorCategory>(() => window.location.pathname.replace(/\/$/, "") === "/admin" ? "admin" : "body");
   const assemblyPreviewSequenceRef = useRef(0);
   const [status, setStatus] = useState("Готово");
 
   const partsBySlot = useMemo(() => groupPartsBySlot(catalog?.parts ?? []), [catalog]);
+  const editorSlots = useMemo<SlotID[]>(() => [
+    "body", "head",
+    ...(["clothing", "gear", "stage"] as SlotID[]).filter((slot) => modelAssets.some((asset) => asset.slot === slot)),
+    "base",
+  ], [modelAssets]);
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId],
@@ -90,6 +102,10 @@ export default function App() {
   useEffect(() => {
     void boot();
   }, []);
+
+  useEffect(() => {
+    if (!downloadBusyRef.current) { setDownloadMessage(""); setDownloadError(""); }
+  }, [config]);
 
   useEffect(() => {
     if (!catalog) {
@@ -132,7 +148,7 @@ export default function App() {
         getAssemblyPointTargets(),
       ]);
       setCatalog(loadedCatalog);
-      setConfig(normalizeConfig(loadedCatalog.defaults, loadedCatalog));
+      setConfig(newCharacterConfig(loadedCatalog, loadedAssets));
       setProjects(loadedProjects);
       setModelAssets(loadedAssets);
       setAssemblyTargets(loadedTargets);
@@ -153,7 +169,7 @@ export default function App() {
           return;
         }
       }
-      setStatus(`Каталог ${loadedCatalog.version}, проектов: ${loadedProjects.length}`);
+      setStatus("Выберите тело и голову");
     } catch (error) {
       setStatus(`Ошибка загрузки: ${getErrorMessage(error)}`);
     } finally {
@@ -193,19 +209,13 @@ export default function App() {
         slot,
         attachmentPoint,
         assemblyPoints,
-      });
+      }, admin.token);
       setModelAssets((current) => [asset, ...current.filter((item) => item.id !== asset.id)]);
-      setConfig((current) => ({
-        ...current,
-        assembly: {
-          placements: [...current.assembly.placements, placementForAsset(asset)],
-        },
-      }));
-      setAssemblyManifest(null);
-      setActiveCategory("assembly");
-      setStatus(`3D-модель загружена и добавлена в сборку: ${asset.label}`);
+      setStatus(`Модель добавлена в общую библиотеку: ${asset.label}`);
     } catch (error) {
       setStatus(`Ошибка загрузки 3D-модели: ${getErrorMessage(error)}`);
+      if (error instanceof APIError && error.status === 401) admin.logout();
+      throw error;
     } finally {
       setIsUploadingAsset(false);
     }
@@ -213,7 +223,7 @@ export default function App() {
 
   async function removeModelAsset(id: string) {
     try {
-      await deleteModelAsset(id);
+      await deleteModelAsset(id, admin.token);
       setModelAssets((current) => current.filter((asset) => asset.id !== id));
       setConfig((current) => ({
         ...current,
@@ -225,6 +235,7 @@ export default function App() {
       setStatus("3D-модель удалена");
     } catch (error) {
       setStatus(`Ошибка удаления 3D-модели: ${getErrorMessage(error)}`);
+      if (error instanceof APIError && error.status === 401) admin.logout();
       throw error;
     }
   }
@@ -232,13 +243,14 @@ export default function App() {
   async function saveModelAsset(id: string, label: string, assemblyPoints: ModelAssetAssemblyPoint[]) {
     setIsUpdatingAsset(true);
     try {
-      const asset = await updateModelAsset(id, { label, assemblyPoints });
+      const asset = await updateModelAsset(id, { label, assemblyPoints }, admin.token);
       setModelAssets((current) => current.map((item) => (item.id === asset.id ? asset : item)));
       setConfig((current) => reconcilePlacementsForUpdatedAsset(current, asset));
       setAssemblyManifest(null);
       setStatus(`3D-модель обновлена: ${asset.label}`);
     } catch (error) {
       setStatus(`Ошибка обновления 3D-модели: ${getErrorMessage(error)}`);
+      if (error instanceof APIError && error.status === 401) admin.logout();
       throw error;
     } finally {
       setIsUpdatingAsset(false);
@@ -303,7 +315,7 @@ export default function App() {
       if (selectedProjectId === id) {
         setSelectedProjectId(null);
         setProjectName("Taverna hero");
-        setConfig(catalog?.defaults ?? fallbackConfig);
+        setConfig(catalog ? newCharacterConfig(catalog, modelAssets) : fallbackConfig);
         setLastExport(null);
         setExportJobs([]);
         setAssemblyManifest(null);
@@ -333,6 +345,33 @@ export default function App() {
     } catch (error) {
       setStatus(`Ошибка export job: ${getErrorMessage(error)}`);
     } finally {
+      setIsExporting(false);
+    }
+  }
+
+  async function downloadCurrentSTL() {
+    if (!catalog || !config.assembly.placements.length || downloadBusyRef.current) return;
+    const snapshot = normalizeConfig(config, catalog);
+    downloadBusyRef.current = true;
+    setIsExporting(true);
+    setDownloadMessage("Подготавливаем STL…");
+    setDownloadError("");
+    try {
+      const file = await downloadSTL(snapshot);
+      const url = URL.createObjectURL(file);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `taverna-${snapshot.scale.mm}mm.stl`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      setDownloadMessage(`STL готов: ${snapshot.scale.mm} мм с подставкой`);
+    } catch (error) {
+      setDownloadMessage("");
+      setDownloadError(getErrorMessage(error));
+    } finally {
+      downloadBusyRef.current = false;
       setIsExporting(false);
     }
   }
@@ -380,12 +419,15 @@ export default function App() {
     setConfig((current) => ({
       ...current,
       assembly: {
-        placements: [...current.assembly.placements, placementForAsset(asset)],
+        placements: [
+          ...current.assembly.placements.filter((placement) =>
+            (asset.slot !== "body" && asset.slot !== "head") || placement.slot !== asset.slot),
+          placementForAsset(asset),
+        ],
       },
     }));
     setAssemblyManifest(null);
-    setActiveCategory("assembly");
-    setStatus(`${asset.label} добавлен в сборку`);
+    setStatus(`${asset.label}: ${asset.slot === "body" || asset.slot === "head" ? "деталь выбрана" : "добавлен в сборку"}`);
   }
 
   function removeAssemblyPlacement(id: string) {
@@ -448,6 +490,9 @@ export default function App() {
 
   return (
     <EditorShell
+      downloadMessage={downloadMessage}
+      downloadError={downloadError}
+      onDownloadSTL={() => void downloadCurrentSTL()}
       activeCategory={activeCategory}
       assemblyManifest={assemblyManifest}
       assemblyTargets={assemblyTargets}
@@ -489,7 +534,7 @@ export default function App() {
       onSlotChange={updateSlot}
       onUpdateAssemblyPlacement={updateAssemblyPlacement}
       onUpdateModelAsset={saveModelAsset}
-      onUploadAsset={(file, label, slot, attachmentPoint, assemblyPoints) => void uploadAsset(file, label, slot, attachmentPoint, assemblyPoints)}
+      onUploadAsset={uploadAsset}
     />
   );
 }
@@ -533,9 +578,13 @@ function normalizeConfig(config: Partial<CharacterConfig> & Record<string, unkno
 function normalizeSelections(config: CharacterConfig, catalog: Catalog): CharacterConfig {
   let next = { ...config, colors: { ...config.colors }, scale: { ...config.scale } };
   for (let pass = 0; pass < 4; pass += 1) {
-    for (const slot of [...editorSlots, "product_target" as SlotID]) {
+    for (const slot of configSlots) {
       const selected = selectionFor(next, slot);
       const parts = catalog.parts.filter((part) => part.slot === slot);
+      if (parts.length === 0) {
+        next = withSelection(next, slot, "");
+        continue;
+      }
       const selectedExists = parts.some((part) => part.id === selected);
       if (!selectedExists || disabledReason(next, catalog, slot, selected)) {
         const replacement = parts.find((part) => !disabledReason(next, catalog, slot, part.id));
@@ -574,6 +623,13 @@ function placementForAsset(asset: ModelAsset): AssemblyPlacement {
       scale: defaultPlacementScale(asset),
     },
   };
+}
+
+function newCharacterConfig(catalog: Catalog, assets: ModelAsset[]): CharacterConfig {
+  const config = normalizeConfig(catalog.defaults, catalog);
+  const body = assets.find((asset) => asset.file_name === "male-body.glb" && asset.slot === "body") ?? assets.find((asset) => asset.slot === "body");
+  const head = assets.find((asset) => asset.file_name === "male-head.glb" && asset.slot === "head") ?? assets.find((asset) => asset.slot === "head");
+  return { ...config, assembly: { placements: [body, head].filter((asset): asset is ModelAsset => Boolean(asset)).map(placementForAsset) } };
 }
 
 function reconcilePlacementsForUpdatedAsset(config: CharacterConfig, asset: ModelAsset): CharacterConfig {
@@ -742,7 +798,7 @@ function maxScaleForConfig(config: CharacterConfig, catalog: Catalog): number {
 }
 
 function selectedPartsForConfig(config: CharacterConfig, catalog: Catalog): Part[] {
-  return [...editorSlots, "product_target" as SlotID]
+  return configSlots
     .map((slot) => catalog.parts.find((part) => part.slot === slot && part.id === selectionFor(config, slot)))
     .filter((part): part is Part => Boolean(part));
 }

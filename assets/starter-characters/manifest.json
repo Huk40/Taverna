@@ -1,0 +1,126 @@
+[
+  {
+    "file": "male-body.glb",
+    "label": "Мужское тело — базовое",
+    "slot": "body",
+    "attachment_point": "body_core",
+    "assembly_points": [
+      {
+        "id": "body_core",
+        "label": "Центр тела",
+        "position": [
+          0,
+          0.8,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "head_mount",
+        "label": "Крепление головы",
+        "position": [
+          0,
+          1.55,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "triangles": 3612,
+    "bytes": 277544
+  },
+  {
+    "file": "male-head.glb",
+    "label": "Мужская голова — сменная",
+    "slot": "head",
+    "attachment_point": "head_mount",
+    "assembly_points": [
+      {
+        "id": "neck",
+        "label": "Основание шеи",
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "triangles": 1824,
+    "bytes": 139440
+  },
+  {
+    "file": "female-body.glb",
+    "label": "Женское тело — базовое",
+    "slot": "body",
+    "attachment_point": "body_core",
+    "assembly_points": [
+      {
+        "id": "body_core",
+        "label": "Центр тела",
+        "position": [
+          0,
+          0.8,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "id": "head_mount",
+        "label": "Крепление головы",
+        "position": [
+          0,
+          1.55,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "triangles": 3612,
+    "bytes": 277584
+  },
+  {
+    "file": "female-head.glb",
+    "label": "Женская голова — сменная",
+    "slot": "head",
+    "attachment_point": "head_mount",
+    "assembly_points": [
+      {
+        "id": "neck",
+        "label": "Основание шеи",
+        "position": [
+          0,
+          0,
+          0
+        ],
+        "rotation": [
+          0,
+          0,
+          0
+        ]
+      }
+    ],
+    "triangles": 2160,
+    "bytes": 164668
+  }
+]

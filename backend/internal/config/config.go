@@ -13,6 +13,7 @@ type Config struct {
 	ModelAssetDir      string
 	ExportArtifactDir  string
 	MaxModelAssetBytes int64
+	AdminToken         string
 }
 
 func Load() Config {
@@ -24,6 +25,7 @@ func Load() Config {
 		ModelAssetDir:      getEnv("MODEL_ASSET_DIR", "storage/model-assets"),
 		ExportArtifactDir:  getEnv("EXPORT_ARTIFACT_DIR", "storage/export-artifacts"),
 		MaxModelAssetBytes: getEnvInt64("MAX_MODEL_ASSET_BYTES", 50<<20),
+		AdminToken:         strings.TrimSpace(os.Getenv("ADMIN_TOKEN")),
 	}
 }
 

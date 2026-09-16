@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import {
   AlertTriangle,
   Box,
@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Ruler,
   Save,
+  Settings2,
   Shirt,
   Smile,
   Sword,
@@ -24,6 +25,9 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import CharacterPreview from "./CharacterPreview";
+import AssetPreview from "./AssetPreview";
+import AssetLibrary, { assetSlotLabels } from "./AssetLibrary";
+import { AdminGate, useAdminAccess } from "./AdminAccess";
 import { APIError, exportArtifactURL } from "./api";
 import type {
   AssemblyPlacement,
@@ -45,6 +49,9 @@ import type {
 } from "./types";
 
 type EditorShellProps = {
+  downloadMessage: string;
+  downloadError: string;
+  onDownloadSTL: () => void;
   activeCategory: EditorCategory;
   assemblyManifest: AssemblyManifest | null;
   assemblyTargets: AssemblyPointTarget[];
@@ -86,10 +93,13 @@ type EditorShellProps = {
   onSlotChange: (slot: SlotID, partID: string) => void;
   onUpdateAssemblyPlacement: (id: string, patch: Partial<AssemblyPlacement>) => void;
   onUpdateModelAsset: (id: string, label: string, assemblyPoints: ModelAssetAssemblyPoint[]) => Promise<void>;
-  onUploadAsset: (file: File, label: string, slot: SlotID, attachmentPoint: string, assemblyPoints: ModelAssetAssemblyPoint[]) => void;
+  onUploadAsset: (file: File, label: string, slot: SlotID, attachmentPoint: string, assemblyPoints: ModelAssetAssemblyPoint[]) => Promise<void>;
 };
 
 export default function EditorShell({
+  downloadMessage,
+  downloadError,
+  onDownloadSTL,
   activeCategory,
   assemblyManifest,
   assemblyTargets,
@@ -135,95 +145,54 @@ export default function EditorShell({
 }: EditorShellProps) {
   const currentTargetPart = partsBySlot.product_target?.find((part) => part.id === config.product_target);
 
-  return (
-    <main className="editor-shell">
-      <header className="editor-topbar">
-        <div className="project-heading">
-          <p className="eyebrow">Taverna Catalog MVP+</p>
-          <input
-            className="project-name-input"
-            aria-label="Project name"
-            value={projectName}
-            onChange={(event) => onProjectNameChange(event.target.value)}
-          />
-        </div>
+  if (activeCategory === "admin") {
+    return <main className="admin-page">
+      <header className="admin-page-heading"><h1>Управление моделями</h1><a href="/">Вернуться в конструктор</a></header>
+      <AdminGate>
+        <AssetPanel assemblyTargets={assemblyTargets} isUpdatingAsset={isUpdatingAsset} isUploadingAsset={isUploadingAsset}
+          modelAssets={modelAssets} onDeleteModelAsset={onDeleteModelAsset}
+          onUpdateModelAsset={onUpdateModelAsset} onUploadAsset={onUploadAsset} />
+      </AdminGate>
+    </main>;
+  }
 
-        <div className="topbar-actions">
-          <div className="status-pill">{status}</div>
-          <button className="topbar-button primary-action" type="button" onClick={onSave} disabled={isSaving || !catalog}>
-            <Save size={18} />
-            {isSaving ? "Сохранение" : "Сохранить"}
-          </button>
-          <button className="topbar-button" type="button" onClick={() => onActiveCategoryChange("projects")}>
-            <FolderOpen size={18} />
-            Проекты
-          </button>
-          <button className="topbar-button" type="button" onClick={() => onActiveCategoryChange("export")}>
-            <FileDown size={18} />
-            Export
+  const modelCategory = activeCategory === "head" ? "head" : "body";
+  return (
+    <main className="editor-shell minimal-editor">
+      <header className="minimal-topbar">
+        <strong className="minimal-brand">Taverna</strong>
+        <div className="stl-controls">
+          <label className="print-height">Высота, мм
+            <input aria-label="Высота фигурки в миллиметрах" type="number" min={24} max={printReadiness?.maxScale ?? 54} step={1}
+              value={config.scale.mm} disabled={!catalog || isExporting}
+              onChange={(event) => onScaleChange(Math.round(Number(event.target.value)))} />
+          </label>
+          <button className="topbar-button primary-action" type="button" onClick={onDownloadSTL}
+            disabled={isExporting || !catalog || config.assembly.placements.length === 0}>
+            <FileDown size={18} /> {isExporting ? "Подготовка…" : "Скачать STL"}
           </button>
         </div>
       </header>
-
-      <section className="editor-workspace">
-        <CategoryNav
-          activeCategory={activeCategory}
-          catalog={catalog}
-          editorSlots={editorSlots}
-          onChange={onActiveCategoryChange}
-        />
-
+      <section className="minimal-workspace">
         <section className="preview-panel" aria-label="3D editor viewport">
           <div className="preview-stage">
-            {!catalog && <div className="preview-overlay">Загрузка каталога</div>}
+            {!catalog && <div className="preview-overlay" role="status">{status.startsWith("Ошибка") ? status : "Загрузка моделей…"}</div>}
+            {catalog && config.assembly.placements.length === 0 && <div className="preview-overlay">Выберите тело</div>}
             <CharacterPreview assemblyManifest={assemblyManifest} config={config} modelAssets={modelAssets} />
           </div>
-          <div className="viewport-footer">
-            <span>{categoryTitle(activeCategory, catalog)}</span>
-            <strong>{currentTargetPart?.label ?? config.product_target}</strong>
-          </div>
         </section>
-
-        <aside className="inspector-panel">
-          {renderInspector({
-            activeCategory,
-            assemblyManifest,
-            assemblyTargets,
-            catalog,
-            config,
-            editorSlots,
-            exportJobs,
-            isExporting,
-            isLoading,
-            isUpdatingAsset,
-            isUploadingAsset,
-            lastExport,
-            modelAssets,
-            partsBySlot,
-            printReadiness,
-            projects,
-            selectedProject,
-            selectedProjectId,
-            shareURL,
-            onAddAssemblyPlacement,
-            onActiveCategoryChange,
-            onColorChange,
-            onCopyShareLink,
-            onCreateExport,
-            onCreateOBJExport,
-            onCreateSTLExport,
-            onDeleteModelAsset,
-            onOpenProject,
-            onRefreshAssemblyManifest,
-            onRefreshProjects,
-            onRemoveProject,
-            onRemoveAssemblyPlacement,
-            onScaleChange,
-            onSlotChange,
-            onUpdateAssemblyPlacement,
-            onUpdateModelAsset,
-            onUploadAsset,
-          })}
+        <aside className="inspector-panel minimal-inspector">
+          <nav className="model-tabs" aria-label="Выбор деталей">
+            <button type="button" aria-pressed={modelCategory === "body"} onClick={() => onActiveCategoryChange("body")}>Тело</button>
+            <button type="button" aria-pressed={modelCategory === "head"} onClick={() => onActiveCategoryChange("head")}>Голова</button>
+          </nav>
+          {catalog && <AssetLibrary compact disabled={isExporting} key={modelCategory} assets={modelAssets} slot={modelCategory}
+            placements={config.assembly.placements} onAdd={onAddAssemblyPlacement} />}
+          <div className="print-note">
+            <p>Высота — вместе с подставкой. Проверка сетки и поддержек — в слайсере.</p>
+            {downloadError ? <p className="download-error" role="alert">{downloadError}</p>
+              : <p role="status" aria-live="polite">{downloadMessage}</p>}
+          </div>
         </aside>
       </section>
     </main>
@@ -277,33 +246,38 @@ function renderInspector(props: InspectorProps) {
   }
 
   if (isSlotCategory(props.activeCategory)) {
+    if (props.activeCategory === "base") {
+      return <div className="inspector-content">
+        <PanelHeading title="Подставка" subtitle="Размер фигурки и цвет подставки" />
+        <ScaleControl config={props.config} maxScale={props.printReadiness?.maxScale ?? 48} onScaleChange={props.onScaleChange} />
+        <label className="color-tile"><span>Цвет подставки</span><input type="color" aria-label="Цвет подставки"
+          value={props.config.colors.stage} onChange={(event) => props.onColorChange("stage", event.target.value)} /></label>
+        {props.modelAssets.some((asset) => asset.slot === "base") && <AssetLibrary assets={props.modelAssets}
+          slot="base" placements={props.config.assembly.placements} onAdd={props.onAddAssemblyPlacement} />}
+      </div>;
+    }
+    if (props.activeCategory !== "product_target") {
+      return <AssetLibrary key={props.activeCategory} assets={props.modelAssets} slot={props.activeCategory}
+        placements={props.config.assembly.placements} onAdd={props.onAddAssemblyPlacement} />;
+    }
     return (
-      <PartsPanel
-        catalog={props.catalog}
-        config={props.config}
-        parts={props.partsBySlot[props.activeCategory] ?? []}
-        printReadiness={props.printReadiness}
-        slot={props.activeCategory}
-        onScaleChange={props.onScaleChange}
-        onSlotChange={props.onSlotChange}
-      />
+      <>
+        <PartsPanel
+          catalog={props.catalog}
+          config={props.config}
+          parts={props.partsBySlot[props.activeCategory] ?? []}
+          printReadiness={props.printReadiness}
+          slot={props.activeCategory}
+          onScaleChange={props.onScaleChange}
+          onSlotChange={props.onSlotChange}
+        />
+        {props.modelAssets.some((asset) => asset.slot === props.activeCategory) && <AssetLibrary key={props.activeCategory}
+          assets={props.modelAssets} slot={props.activeCategory} placements={props.config.assembly.placements} onAdd={props.onAddAssemblyPlacement} />}
+      </>
     );
   }
 
   switch (props.activeCategory) {
-    case "assets":
-      return (
-        <AssetPanel
-          assemblyTargets={props.assemblyTargets}
-          isUpdatingAsset={props.isUpdatingAsset}
-          isUploadingAsset={props.isUploadingAsset}
-          modelAssets={props.modelAssets}
-          onAddAssemblyPlacement={props.onAddAssemblyPlacement}
-          onDeleteModelAsset={props.onDeleteModelAsset}
-          onUpdateModelAsset={props.onUpdateModelAsset}
-          onUploadAsset={props.onUploadAsset}
-        />
-      );
     case "assembly":
       return (
         <AssemblyPanel
@@ -364,7 +338,7 @@ type CategoryNavProps = {
 };
 
 function CategoryNav({ activeCategory, catalog, editorSlots, onChange }: CategoryNavProps) {
-  const categories: EditorCategory[] = [...editorSlots, "assets", "assembly", "color", "projects", "export"];
+  const categories: EditorCategory[] = [...editorSlots, "assembly"];
 
   return (
     <nav className="category-nav" aria-label="Editor categories">
@@ -383,6 +357,7 @@ function CategoryNav({ activeCategory, catalog, editorSlots, onChange }: Categor
           </button>
         );
       })}
+      <a className="admin-entry" href="/admin" aria-label="Управление моделями" title="Управление моделями"><Settings2 size={17} /></a>
     </nav>
   );
 }
@@ -469,10 +444,9 @@ type AssetPanelProps = {
   isUpdatingAsset: boolean;
   isUploadingAsset: boolean;
   modelAssets: ModelAsset[];
-  onAddAssemblyPlacement: (asset: ModelAsset) => void;
   onDeleteModelAsset: (id: string) => Promise<void>;
   onUpdateModelAsset: (id: string, label: string, assemblyPoints: ModelAssetAssemblyPoint[]) => Promise<void>;
-  onUploadAsset: (file: File, label: string, slot: SlotID, attachmentPoint: string, assemblyPoints: ModelAssetAssemblyPoint[]) => void;
+  onUploadAsset: (file: File, label: string, slot: SlotID, attachmentPoint: string, assemblyPoints: ModelAssetAssemblyPoint[]) => Promise<void>;
 };
 
 function AssetPanel({
@@ -480,15 +454,21 @@ function AssetPanel({
   isUpdatingAsset,
   isUploadingAsset,
   modelAssets,
-  onAddAssemblyPlacement,
   onDeleteModelAsset,
   onUpdateModelAsset,
   onUploadAsset,
 }: AssetPanelProps) {
+  const { settings } = useAdminAccess();
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [uploadError, setUploadError] = useState("");
+  const [previewReady, setPreviewReady] = useState(false);
+  const [uploadNotice, setUploadNotice] = useState("");
+  const [previewID, setPreviewID] = useState<string | null>(null);
+  const maxUploadBytes = settings?.max_upload_bytes ?? 50 * 1048576;
   const slotOptions = useMemo(() => uniqueSlotsForTargets(assemblyTargets), [assemblyTargets]);
   const [file, setFile] = useState<File | null>(null);
   const [label, setLabel] = useState("");
-  const [slot, setSlot] = useState<SlotID>((slotOptions[0] ?? "gear") as SlotID);
+  const [slot, setSlot] = useState<SlotID>("gear");
   const [attachmentPoint, setAttachmentPoint] = useState("right_hand");
   const [anchors, setAnchors] = useState<ModelAssetAssemblyPoint[]>([]);
   const [editingAssetID, setEditingAssetID] = useState<string | null>(null);
@@ -502,15 +482,43 @@ function AssetPanel({
     ? attachmentPoint
     : targetsForSlot[0]?.id ?? "";
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!file || !selectedAttachmentPoint) {
       return;
     }
-    onUploadAsset(file, label || stripExtension(file.name), slot, selectedAttachmentPoint, normalizeUploadAnchors(anchors));
+    if (isUploadingAsset || !previewReady) return;
+    setUploadError("");
+    setUploadNotice("");
+    try {
+      await onUploadAsset(file, label || stripExtension(file.name), slot, selectedAttachmentPoint, normalizeUploadAnchors(anchors));
+      setFile(null);
+      setLabel("");
+      setAnchors([]);
+      setPreviewReady(false);
+      if (fileInput.current) fileInput.current.value = "";
+      setUploadNotice("Модель загружена и доступна в библиотеке всем пользователям.");
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "Не удалось загрузить модель");
+    }
+  }
+
+  function selectFile(nextFile: File | null) {
+    setUploadError("");
+    setUploadNotice("");
+    setPreviewReady(false);
     setFile(null);
-    setLabel("");
-    setAnchors([]);
+    if (!nextFile) return;
+    if (!/\.(glb|gltf|obj|stl|3mf)$/i.test(nextFile.name)) {
+      setUploadError("Выберите GLB, GLTF, OBJ, STL или 3MF.");
+      return;
+    }
+    if (!nextFile.size || nextFile.size > maxUploadBytes) {
+      setUploadError(`Файл должен быть непустым и не больше ${formatBytes(maxUploadBytes)}.`);
+      return;
+    }
+    setFile(nextFile);
+    setLabel(stripExtension(nextFile.name));
   }
 
   function startEditingAsset(asset: ModelAsset) {
@@ -552,29 +560,34 @@ function AssetPanel({
 
   return (
     <div className="inspector-content">
-      <PanelHeading title="Assets" subtitle="Upload user GLB, GLTF, OBJ, STL, or 3MF models to the server" />
-      <form className="asset-upload-form" onSubmit={handleSubmit}>
-        <label className="file-drop">
+      <PanelHeading title="Загрузить 3D-ассет" subtitle="Добавьте модель в общую библиотеку конструктора" />
+      <form className="asset-upload-form" onSubmit={(event) => void handleSubmit(event)}>
+        <fieldset className="asset-upload-fields" disabled={isUploadingAsset}>
+        <label className="file-drop" onDragOver={(event) => event.preventDefault()} onDrop={(event) => {
+          event.preventDefault();
+          if (!isUploadingAsset) selectFile(event.dataTransfer.files[0] ?? null);
+        }}>
           <UploadCloud size={20} />
-          <span>{file ? file.name : "Choose 3D model file"}</span>
+          <span>{file ? file.name : "Выберите или перетащите 3D-модель"}</span>
+          <small>GLB · GLTF · OBJ · STL · 3MF · до {formatBytes(maxUploadBytes)}</small>
           <input
+            ref={fileInput}
+            aria-label="Файл 3D-модели"
             accept=".glb,.gltf,.obj,.stl,.3mf"
             type="file"
             onChange={(event) => {
-              const nextFile = event.target.files?.[0] ?? null;
-              setFile(nextFile);
-              if (nextFile && !label) {
-                setLabel(stripExtension(nextFile.name));
-              }
+              selectFile(event.target.files?.[0] ?? null);
             }}
           />
         </label>
+        <p className="empty-state">GLB сохраняет геометрию и текстуры в одном файле. Для GLTF нужны встроенные ресурсы; OBJ загружается без отдельного MTL.</p>
+        {file && <AssetPreview file={file} onReady={setPreviewReady} />}
         <label className="field">
-          <span>Label</span>
+          <span>Название в библиотеке</span>
           <input value={label} onChange={(event) => setLabel(event.target.value)} placeholder={file ? stripExtension(file.name) : "Custom sword"} />
         </label>
         <label className="field">
-          <span>Slot</span>
+          <span>Категория</span>
           <select
             value={slot}
             onChange={(event) => {
@@ -586,13 +599,13 @@ function AssetPanel({
           >
             {slotOptions.map((item) => (
               <option key={item} value={item}>
-                {item}
+                {assetSlotLabels[item] ?? item}
               </option>
             ))}
           </select>
         </label>
         <label className="field">
-          <span>Attachment point</span>
+          <span>Точка крепления на персонаже</span>
           <select value={selectedAttachmentPoint} onChange={(event) => setAttachmentPoint(event.target.value)}>
             {targetsForSlot.map((target) => (
               <option key={target.id} value={target.id}>
@@ -611,13 +624,16 @@ function AssetPanel({
                 <Plus size={16} />
               </button>
             </div>
-            <p className="empty-state">Server will suggest anchors from parsed geometry bounds</p>
+            <p className="empty-state">Точки крепления на модели будут рассчитаны автоматически. Их можно настроить после загрузки.</p>
           </div>
         )}
-        <button className="wide-command primary-action" type="submit" disabled={!file || !selectedAttachmentPoint || isUploadingAsset}>
+        {uploadError && <p className="asset-edit-notice" role="alert">{uploadError}</p>}
+        {uploadNotice && <p className="asset-edit-notice" role="status">{uploadNotice}</p>}
+        <button className="wide-command primary-action" type="submit" disabled={!file || !previewReady || !selectedAttachmentPoint || isUploadingAsset}>
           <UploadCloud size={18} />
-          {isUploadingAsset ? "Uploading..." : "Upload and attach"}
+          {isUploadingAsset ? "Загрузка и проверка модели…" : "Загрузить в библиотеку"}
         </button>
+        </fieldset>
       </form>
 
       <div className="asset-list">
@@ -633,6 +649,8 @@ function AssetPanel({
               <span>{formatBytes(asset.size_bytes)}</span>
             </span>
             <AssetGeometrySummary metadata={asset.metadata} />
+            <button className="wide-command" type="button" onClick={() => setPreviewID(previewID === asset.id ? null : asset.id)}>{previewID === asset.id ? "Скрыть предпросмотр" : "Смотреть в 3D"}</button>
+            {previewID === asset.id && <AssetPreview asset={asset} />}
             <span className="part-card-assets">Anchors: {asset.assembly_points.length ? asset.assembly_points.map((point) => point.label || point.id).join(", ") : "origin"}</span>
             {editingAssetID === asset.id ? (
               <div className="asset-edit-panel">
@@ -669,13 +687,9 @@ function AssetPanel({
               </div>
             ) : (
               <div className="asset-actions">
-                <button className="wide-command" type="button" onClick={() => onAddAssemblyPlacement(asset)}>
-                  <Boxes size={16} />
-                  Add to assembly
-                </button>
                 <button className="wide-command" type="button" onClick={() => startEditingAsset(asset)}>
                   <Ruler size={16} />
-                  Edit anchors
+                  Настроить
                 </button>
                 <button
                   className="delete-button"
@@ -691,7 +705,7 @@ function AssetPanel({
             {assetDeleteNotice?.assetID === asset.id && <AssetDeleteNoticePanel notice={assetDeleteNotice} />}
           </article>
         ))}
-        {modelAssets.length === 0 && <p className="empty-state">Upload a model to start assembling custom parts</p>}
+        {modelAssets.length === 0 && <p className="empty-state">Загрузите первую модель для библиотеки персонажей.</p>}
       </div>
     </div>
   );
@@ -924,7 +938,7 @@ function AssemblyPanel({
 
   return (
     <div className="inspector-content">
-      <PanelHeading title="Assembly" subtitle="Attach uploaded models to stable character assembly points" />
+      <PanelHeading title="Сборка" subtitle="Настройка положения и креплений выбранных деталей" />
       <button className="wide-command" type="button" onClick={onRefreshAssemblyManifest}>
         <RefreshCw size={18} />
         Preview server assembly
@@ -1680,7 +1694,7 @@ function formatGeometryNumber(value: number): string {
 }
 
 function isSlotCategory(category: EditorCategory): category is SlotID {
-  return !["assets", "assembly", "color", "projects", "export"].includes(category);
+  return !["admin", "assembly", "color", "projects", "export"].includes(category);
 }
 
 function categoryTitle(category: EditorCategory, catalog: Catalog | null): string {
@@ -1690,14 +1704,14 @@ function categoryTitle(category: EditorCategory, catalog: Catalog | null): strin
   switch (category) {
     case "color":
       return "Color";
-    case "assets":
-      return "Assets";
+    case "admin":
+      return "Администратор";
     case "assembly":
-      return "Assembly";
+      return "Сборка";
     case "projects":
-      return "Projects";
+      return "Проекты";
     case "export":
-      return "Share / Export";
+      return "Экспорт";
   }
 }
 
@@ -1726,8 +1740,6 @@ function iconForCategory(category: EditorCategory): LucideIcon {
       return Box;
     case "base":
       return Circle;
-    case "assets":
-      return UploadCloud;
     case "assembly":
       return Boxes;
     case "color":

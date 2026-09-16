@@ -296,24 +296,30 @@ func appendOBJPlacement(writer *bufio.Writer, state *objWriteState, placement as
 	return nil
 }
 
+type triangleWriter func(a, b, c [3]float64) error
+
 func appendSTLPlacement(writer *bufio.Writer, placement assembly.ResolvedPlacement) (int, error) {
+	return visitSTLPlacement(func(a, b, c [3]float64) error { return writeSTLFacet(writer, a, b, c) }, placement)
+}
+
+func visitSTLPlacement(writeFacet triangleWriter, placement assembly.ResolvedPlacement) (int, error) {
 	switch placement.Asset.Format {
 	case modelasset.FormatOBJ:
-		return appendOBJAsSTL(writer, placement)
+		return appendOBJAsSTL(writeFacet, placement)
 	case modelasset.FormatSTL:
-		return appendSTLFilePlacement(writer, placement)
+		return appendSTLFilePlacement(writeFacet, placement)
 	case modelasset.FormatGLB:
-		return appendGLBAsSTL(writer, placement)
+		return appendGLBAsSTL(writeFacet, placement)
 	case modelasset.FormatGLTF:
-		return appendGLTFAsSTL(writer, placement)
+		return appendGLTFAsSTL(writeFacet, placement)
 	case modelasset.Format3MF:
-		return append3MFAsSTL(writer, placement)
+		return append3MFAsSTL(writeFacet, placement)
 	default:
 		return 0, fmt.Errorf("asset %s has unsupported STL assembly format %s", placement.Asset.ID, placement.Asset.Format)
 	}
 }
 
-func appendGLBAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) (int, error) {
+func appendGLBAsSTL(writeFacet triangleWriter, placement assembly.ResolvedPlacement) (int, error) {
 	triangles, err := modelasset.ReadGLBTriangles(placement.Asset.StoragePath)
 	if err != nil {
 		return 0, fmt.Errorf("read asset %s GLB triangles: %w", placement.Asset.ID, err)
@@ -323,7 +329,7 @@ func appendGLBAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) 
 		a := applyTransform(vector3ToArray(triangle[0]), placement.WorldTransform, true)
 		b := applyTransform(vector3ToArray(triangle[1]), placement.WorldTransform, true)
 		c := applyTransform(vector3ToArray(triangle[2]), placement.WorldTransform, true)
-		if err := writeSTLFacet(writer, a, b, c); err != nil {
+		if err := writeFacet(a, b, c); err != nil {
 			return 0, err
 		}
 	}
@@ -331,7 +337,7 @@ func appendGLBAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) 
 	return len(triangles), nil
 }
 
-func appendGLTFAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) (int, error) {
+func appendGLTFAsSTL(writeFacet triangleWriter, placement assembly.ResolvedPlacement) (int, error) {
 	triangles, err := modelasset.ReadGLTFTriangles(placement.Asset.StoragePath)
 	if err != nil {
 		return 0, fmt.Errorf("read asset %s GLTF triangles: %w", placement.Asset.ID, err)
@@ -341,7 +347,7 @@ func appendGLTFAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement)
 		a := applyTransform(vector3ToArray(triangle[0]), placement.WorldTransform, true)
 		b := applyTransform(vector3ToArray(triangle[1]), placement.WorldTransform, true)
 		c := applyTransform(vector3ToArray(triangle[2]), placement.WorldTransform, true)
-		if err := writeSTLFacet(writer, a, b, c); err != nil {
+		if err := writeFacet(a, b, c); err != nil {
 			return 0, err
 		}
 	}
@@ -349,7 +355,7 @@ func appendGLTFAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement)
 	return len(triangles), nil
 }
 
-func append3MFAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) (int, error) {
+func append3MFAsSTL(writeFacet triangleWriter, placement assembly.ResolvedPlacement) (int, error) {
 	triangles, err := modelasset.Read3MFTriangles(placement.Asset.StoragePath)
 	if err != nil {
 		return 0, fmt.Errorf("read asset %s 3MF triangles: %w", placement.Asset.ID, err)
@@ -359,7 +365,7 @@ func append3MFAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) 
 		a := applyTransform(vector3ToArray(triangle[0]), placement.WorldTransform, true)
 		b := applyTransform(vector3ToArray(triangle[1]), placement.WorldTransform, true)
 		c := applyTransform(vector3ToArray(triangle[2]), placement.WorldTransform, true)
-		if err := writeSTLFacet(writer, a, b, c); err != nil {
+		if err := writeFacet(a, b, c); err != nil {
 			return 0, err
 		}
 	}
@@ -367,18 +373,18 @@ func append3MFAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) 
 	return len(triangles), nil
 }
 
-func appendSTLFilePlacement(writer *bufio.Writer, placement assembly.ResolvedPlacement) (int, error) {
+func appendSTLFilePlacement(writeFacet triangleWriter, placement assembly.ResolvedPlacement) (int, error) {
 	triangleCount, isBinary, err := binarySTLTriangleCount(placement.Asset.StoragePath)
 	if err != nil {
 		return 0, fmt.Errorf("inspect asset %s STL: %w", placement.Asset.ID, err)
 	}
 	if isBinary {
-		return appendBinarySTLPlacement(writer, placement, triangleCount)
+		return appendBinarySTLPlacement(writeFacet, placement, triangleCount)
 	}
-	return appendASCIISTLPlacement(writer, placement)
+	return appendASCIISTLPlacement(writeFacet, placement)
 }
 
-func appendOBJAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) (int, error) {
+func appendOBJAsSTL(writeFacet triangleWriter, placement assembly.ResolvedPlacement) (int, error) {
 	source, err := os.Open(placement.Asset.StoragePath)
 	if err != nil {
 		return 0, fmt.Errorf("read asset %s: %w", placement.Asset.ID, err)
@@ -420,7 +426,7 @@ func appendOBJAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) 
 				indices = append(indices, index)
 			}
 			for index := 1; index < len(indices)-1; index++ {
-				if err := writeSTLFacet(writer, vertices[indices[0]], vertices[indices[index]], vertices[indices[index+1]]); err != nil {
+				if err := writeFacet(vertices[indices[0]], vertices[indices[index]], vertices[indices[index+1]]); err != nil {
 					return triangleCount, err
 				}
 				triangleCount++
@@ -436,7 +442,7 @@ func appendOBJAsSTL(writer *bufio.Writer, placement assembly.ResolvedPlacement) 
 	return triangleCount, nil
 }
 
-func appendASCIISTLPlacement(writer *bufio.Writer, placement assembly.ResolvedPlacement) (int, error) {
+func appendASCIISTLPlacement(writeFacet triangleWriter, placement assembly.ResolvedPlacement) (int, error) {
 	source, err := os.Open(placement.Asset.StoragePath)
 	if err != nil {
 		return 0, fmt.Errorf("read asset %s: %w", placement.Asset.ID, err)
@@ -461,7 +467,7 @@ func appendASCIISTLPlacement(writer *bufio.Writer, placement assembly.ResolvedPl
 		}
 		triangle = append(triangle, applyTransform(vertex, placement.WorldTransform, true))
 		if len(triangle) == 3 {
-			if err := writeSTLFacet(writer, triangle[0], triangle[1], triangle[2]); err != nil {
+			if err := writeFacet(triangle[0], triangle[1], triangle[2]); err != nil {
 				return triangleCount, err
 			}
 			triangleCount++
@@ -481,7 +487,7 @@ func appendASCIISTLPlacement(writer *bufio.Writer, placement assembly.ResolvedPl
 	return triangleCount, nil
 }
 
-func appendBinarySTLPlacement(writer *bufio.Writer, placement assembly.ResolvedPlacement, triangleTotal uint32) (int, error) {
+func appendBinarySTLPlacement(writeFacet triangleWriter, placement assembly.ResolvedPlacement, triangleTotal uint32) (int, error) {
 	source, err := os.Open(placement.Asset.StoragePath)
 	if err != nil {
 		return 0, fmt.Errorf("read asset %s: %w", placement.Asset.ID, err)
@@ -502,7 +508,7 @@ func appendBinarySTLPlacement(writer *bufio.Writer, placement assembly.ResolvedP
 		a := applyTransform(float32Vector(values[3], values[4], values[5]), placement.WorldTransform, true)
 		b := applyTransform(float32Vector(values[6], values[7], values[8]), placement.WorldTransform, true)
 		c := applyTransform(float32Vector(values[9], values[10], values[11]), placement.WorldTransform, true)
-		if err := writeSTLFacet(writer, a, b, c); err != nil {
+		if err := writeFacet(a, b, c); err != nil {
 			return triangleCount, err
 		}
 

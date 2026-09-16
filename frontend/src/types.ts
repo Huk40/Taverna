@@ -219,7 +219,7 @@ export type AssemblyManifest = {
   warnings: string[];
 };
 
-export type EditorCategory = SlotID | "assets" | "assembly" | "color" | "projects" | "export";
+export type EditorCategory = SlotID | "admin" | "assembly" | "color" | "projects" | "export";
 
 export type PrintReadiness = {
   maxScale: number;

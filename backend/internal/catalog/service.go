@@ -34,11 +34,18 @@ var assemblyPointTargets = []AssemblyPointTarget{
 //go:embed seed/catalog.json
 var seedCatalogJSON []byte
 
+// Only IDs are retained to open older saved projects without restoring demo models.
+//
+//go:embed seed/retired-parts.json
+var retiredPartsJSON []byte
+
 type Service struct {
 	catalog      Catalog
 	partsBySlot  map[string]map[string]Part
 	colorZoneIDs map[string]struct{}
 	slotIDs      map[string]struct{}
+
+	retiredParts map[string][]string
 }
 
 func NewService() (*Service, error) {
@@ -48,6 +55,9 @@ func NewService() (*Service, error) {
 	}
 
 	service := newService(seed)
+	if err := json.Unmarshal(retiredPartsJSON, &service.retiredParts); err != nil {
+		return nil, fmt.Errorf("load retired part IDs: %w", err)
+	}
 	if err := service.ValidateSeed(); err != nil {
 		return nil, err
 	}
@@ -231,6 +241,21 @@ func (s *Service) DecodeRawConfig(raw json.RawMessage) (CharacterConfig, error) 
 		return CharacterConfig{}, fmt.Errorf("%w: %v", ErrInvalidConfig, err)
 	}
 
+	fields := map[string]*string{
+		"species": &config.Species, "body": &config.Body, "head": &config.Head,
+		"clothing": &config.Clothing, "gear": &config.Gear, "pose": &config.Pose,
+		"stage": &config.Stage, "base": &config.Base,
+	}
+	defaults := selectionMap(s.catalog.Defaults)
+	for slot, field := range fields {
+		for _, retired := range s.retiredParts[slot] {
+			if *field == retired {
+				*field = defaults[slot]
+				break
+			}
+		}
+	}
+
 	return config, nil
 }
 
@@ -242,6 +267,10 @@ func (s *Service) ValidateConfig(config CharacterConfig) error {
 	selections := selectionMap(config)
 	for slot, partID := range selections {
 		if partID == "" {
+			// Model slots are selected by assembly placements, not seed part IDs.
+			if len(s.partsBySlot[slot]) == 0 {
+				continue
+			}
 			return fmt.Errorf("%w: %s is required", ErrInvalidConfig, slot)
 		}
 		if _, ok := s.partsBySlot[slot][partID]; !ok {

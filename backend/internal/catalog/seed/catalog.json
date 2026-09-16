@@ -1,439 +1,55 @@
 {
-  "version": "2026.07.seed",
+  "version": "2026.09.models",
   "slots": [
     {
-      "id": "species",
-      "label": "Species",
-      "description": "Playable ancestry or creature archetype."
-    },
-    {
       "id": "body",
-      "label": "Body",
-      "description": "Body proportions used by the preview and print target."
+      "label": "Тело",
+      "description": "Основа персонажа."
     },
     {
       "id": "head",
-      "label": "Head",
-      "description": "Head shape and facial silhouette."
+      "label": "Голова",
+      "description": "Сменная голова персонажа."
     },
     {
       "id": "clothing",
-      "label": "Clothing",
-      "description": "Main outfit or armor layer."
+      "label": "Одежда",
+      "description": "Одежда и броня."
     },
     {
       "id": "gear",
-      "label": "Gear",
-      "description": "Held weapon or prop."
-    },
-    {
-      "id": "pose",
-      "label": "Pose",
-      "description": "Full-body stance preset."
+      "label": "Предметы",
+      "description": "Оружие и предметы."
     },
     {
       "id": "stage",
-      "label": "Stage",
-      "description": "Display scene or terrain accent."
+      "label": "Окружение",
+      "description": "Детали сцены."
     },
     {
       "id": "base",
-      "label": "Base",
-      "description": "Physical print base size."
+      "label": "Подставка",
+      "description": "Подставка и размер фигурки."
     },
     {
       "id": "product_target",
-      "label": "Product Target",
-      "description": "Intended downstream output."
+      "label": "Формат",
+      "description": "Формат экспорта."
     }
   ],
   "parts": [
     {
-      "id": "human_01",
-      "slot": "species",
-      "label": "Human",
-      "preview_asset": "placeholder://species/human_01",
-      "render_asset": "worker://species/human_01",
-      "tags": ["humanoid"],
-      "color_zones": ["skin"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "elf_01",
-      "slot": "species",
-      "label": "Elf",
-      "preview_asset": "placeholder://species/elf_01",
-      "render_asset": "worker://species/elf_01",
-      "tags": ["humanoid", "slender"],
-      "color_zones": ["skin"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "dwarf_01",
-      "slot": "species",
-      "label": "Dwarf",
-      "preview_asset": "placeholder://species/dwarf_01",
-      "render_asset": "worker://species/dwarf_01",
-      "tags": ["humanoid", "compact"],
-      "color_zones": ["skin"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "orc_01",
-      "slot": "species",
-      "label": "Orc",
-      "preview_asset": "placeholder://species/orc_01",
-      "render_asset": "worker://species/orc_01",
-      "tags": ["humanoid", "large"],
-      "color_zones": ["skin"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "balanced_body_01",
-      "slot": "body",
-      "label": "Balanced body",
-      "preview_asset": "placeholder://body/balanced_body_01",
-      "render_asset": "worker://body/balanced_body_01",
-      "tags": ["medium"],
-      "color_zones": ["skin"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "compact_body_01",
-      "slot": "body",
-      "label": "Compact body",
-      "preview_asset": "placeholder://body/compact_body_01",
-      "render_asset": "worker://body/compact_body_01",
-      "tags": ["compact"],
-      "color_zones": ["skin"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "heroic_body_01",
-      "slot": "body",
-      "label": "Heroic body",
-      "preview_asset": "placeholder://body/heroic_body_01",
-      "render_asset": "worker://body/heroic_body_01",
-      "tags": ["large"],
-      "color_zones": ["skin"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "default_head_01",
-      "slot": "head",
-      "label": "Default head",
-      "preview_asset": "placeholder://head/default_head_01",
-      "render_asset": "worker://head/default_head_01",
-      "tags": ["neutral"],
-      "color_zones": ["skin", "hair"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "square_head_01",
-      "slot": "head",
-      "label": "Square head",
-      "preview_asset": "placeholder://head/square_head_01",
-      "render_asset": "worker://head/square_head_01",
-      "tags": ["strong"],
-      "color_zones": ["skin", "hair"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "noble_head_01",
-      "slot": "head",
-      "label": "Noble head",
-      "preview_asset": "placeholder://head/noble_head_01",
-      "render_asset": "worker://head/noble_head_01",
-      "tags": ["slender"],
-      "color_zones": ["skin", "hair"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "basic_armor_01",
-      "slot": "clothing",
-      "label": "Basic armor",
-      "preview_asset": "placeholder://clothing/basic_armor_01",
-      "render_asset": "worker://clothing/basic_armor_01",
-      "tags": ["armor"],
-      "color_zones": ["clothing_primary", "clothing_secondary"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "travel_cloak_01",
-      "slot": "clothing",
-      "label": "Travel cloak",
-      "preview_asset": "placeholder://clothing/travel_cloak_01",
-      "render_asset": "worker://clothing/travel_cloak_01",
-      "tags": ["cloth"],
-      "color_zones": ["clothing_primary", "clothing_secondary"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "heavy_plate_01",
-      "slot": "clothing",
-      "label": "Heavy plate",
-      "preview_asset": "placeholder://clothing/heavy_plate_01",
-      "render_asset": "worker://clothing/heavy_plate_01",
-      "tags": ["armor", "heavy"],
-      "color_zones": ["clothing_primary", "gear_metal"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "mage_robe_01",
-      "slot": "clothing",
-      "label": "Mage robe",
-      "preview_asset": "placeholder://clothing/mage_robe_01",
-      "render_asset": "worker://clothing/mage_robe_01",
-      "tags": ["cloth", "robe"],
-      "color_zones": ["clothing_primary", "clothing_secondary"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "sword_01",
-      "slot": "gear",
-      "label": "Sword",
-      "preview_asset": "placeholder://gear/sword_01",
-      "render_asset": "worker://gear/sword_01",
-      "tags": ["weapon", "one_hand"],
-      "color_zones": ["gear_metal"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "axe_01",
-      "slot": "gear",
-      "label": "Axe",
-      "preview_asset": "placeholder://gear/axe_01",
-      "render_asset": "worker://gear/axe_01",
-      "tags": ["weapon", "one_hand"],
-      "color_zones": ["gear_metal"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "staff_01",
-      "slot": "gear",
-      "label": "Staff",
-      "preview_asset": "placeholder://gear/staff_01",
-      "render_asset": "worker://gear/staff_01",
-      "tags": ["weapon", "two_hand"],
-      "color_zones": ["gear_metal", "clothing_secondary"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "longbow_01",
-      "slot": "gear",
-      "label": "Longbow",
-      "preview_asset": "placeholder://gear/longbow_01",
-      "render_asset": "worker://gear/longbow_01",
-      "tags": ["weapon", "two_hand"],
-      "color_zones": ["gear_metal"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "tower_shield_01",
-      "slot": "gear",
-      "label": "Tower shield",
-      "preview_asset": "placeholder://gear/tower_shield_01",
-      "render_asset": "worker://gear/tower_shield_01",
-      "tags": ["shield", "large"],
-      "color_zones": ["gear_metal", "clothing_primary"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "none_01",
-      "slot": "gear",
-      "label": "No gear",
-      "preview_asset": "placeholder://gear/none_01",
-      "render_asset": "worker://gear/none_01",
-      "tags": ["empty"],
-      "color_zones": [],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "idle_01",
-      "slot": "pose",
-      "label": "Idle",
-      "preview_asset": "placeholder://pose/idle_01",
-      "render_asset": "worker://pose/idle_01",
-      "tags": ["stable"],
-      "color_zones": [],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "guard_01",
-      "slot": "pose",
-      "label": "Guard",
-      "preview_asset": "placeholder://pose/guard_01",
-      "render_asset": "worker://pose/guard_01",
-      "tags": ["combat"],
-      "color_zones": [],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "victory_01",
-      "slot": "pose",
-      "label": "Victory",
-      "preview_asset": "placeholder://pose/victory_01",
-      "render_asset": "worker://pose/victory_01",
-      "tags": ["expressive"],
-      "color_zones": [],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "plain_stage_01",
-      "slot": "stage",
-      "label": "Plain stage",
-      "preview_asset": "placeholder://stage/plain_stage_01",
-      "render_asset": "worker://stage/plain_stage_01",
-      "tags": ["simple"],
-      "color_zones": ["stage"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "dungeon_stage_01",
-      "slot": "stage",
-      "label": "Dungeon stones",
-      "preview_asset": "placeholder://stage/dungeon_stage_01",
-      "render_asset": "worker://stage/dungeon_stage_01",
-      "tags": ["terrain"],
-      "color_zones": ["stage"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "ruins_stage_01",
-      "slot": "stage",
-      "label": "Ancient ruins",
-      "preview_asset": "placeholder://stage/ruins_stage_01",
-      "render_asset": "worker://stage/ruins_stage_01",
-      "tags": ["terrain"],
-      "color_zones": ["stage"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 75,
-        "supports_stl": true
-      }
-    },
-    {
       "id": "round_base_32mm",
       "slot": "base",
-      "label": "Round base 32 mm",
+      "label": "Круглая подставка",
       "preview_asset": "placeholder://base/round_base_32mm",
       "render_asset": "worker://base/round_base_32mm",
-      "tags": ["print_base"],
-      "color_zones": ["stage"],
-      "print_constraints": {
-        "min_thickness_mm": 0.8,
-        "max_scale_mm": 54,
-        "supports_stl": true
-      }
-    },
-    {
-      "id": "round_base_40mm",
-      "slot": "base",
-      "label": "Round base 40 mm",
-      "preview_asset": "placeholder://base/round_base_40mm",
-      "render_asset": "worker://base/round_base_40mm",
-      "tags": ["print_base"],
-      "color_zones": ["stage"],
+      "tags": [
+        "print_base"
+      ],
+      "color_zones": [
+        "stage"
+      ],
       "print_constraints": {
         "min_thickness_mm": 0.8,
         "max_scale_mm": 54,
@@ -446,7 +62,10 @@
       "label": "STL print",
       "preview_asset": "placeholder://product_target/stl_print",
       "render_asset": "worker://product_target/stl_print",
-      "tags": ["digital", "print"],
+      "tags": [
+        "digital",
+        "print"
+      ],
       "color_zones": [],
       "print_constraints": {
         "min_thickness_mm": 0.8,
@@ -460,7 +79,10 @@
       "label": "GLB preview",
       "preview_asset": "placeholder://product_target/glb_preview",
       "render_asset": "worker://product_target/glb_preview",
-      "tags": ["digital", "preview"],
+      "tags": [
+        "digital",
+        "preview"
+      ],
       "color_zones": [],
       "print_constraints": {
         "min_thickness_mm": 0.8,
@@ -474,7 +96,10 @@
       "label": "Physical print",
       "preview_asset": "placeholder://product_target/physical_print",
       "render_asset": "worker://product_target/physical_print",
-      "tags": ["print", "fulfillment"],
+      "tags": [
+        "print",
+        "fulfillment"
+      ],
       "color_zones": [],
       "print_constraints": {
         "min_thickness_mm": 0.8,
@@ -483,53 +108,7 @@
       }
     }
   ],
-  "rules": [
-    {
-      "id": "compact-body-no-longbow",
-      "description": "Compact bodies use shorter gear in the MVP catalog.",
-      "when": {
-        "slot": "body",
-        "part_id": "compact_body_01"
-      },
-      "disables": [
-        {
-          "slot": "gear",
-          "part_id": "longbow_01"
-        }
-      ],
-      "reason": "compact_body_01 is not compatible with longbow_01 in the MVP catalog"
-    },
-    {
-      "id": "robe-no-tower-shield",
-      "description": "Robes avoid the large shield silhouette until kitbashing exists.",
-      "when": {
-        "slot": "clothing",
-        "part_id": "mage_robe_01"
-      },
-      "disables": [
-        {
-          "slot": "gear",
-          "part_id": "tower_shield_01"
-        }
-      ],
-      "reason": "mage_robe_01 is not compatible with tower_shield_01 in the MVP catalog"
-    },
-    {
-      "id": "victory-no-tower-shield",
-      "description": "The victory pose keeps arms open and blocks large shields.",
-      "when": {
-        "slot": "pose",
-        "part_id": "victory_01"
-      },
-      "disables": [
-        {
-          "slot": "gear",
-          "part_id": "tower_shield_01"
-        }
-      ],
-      "reason": "victory_01 is not compatible with tower_shield_01 in the MVP catalog"
-    }
-  ],
+  "rules": [],
   "color_zones": [
     {
       "id": "skin",
@@ -564,13 +143,13 @@
   ],
   "defaults": {
     "schema_version": 1,
-    "species": "human_01",
-    "body": "balanced_body_01",
-    "head": "default_head_01",
-    "clothing": "basic_armor_01",
-    "gear": "sword_01",
-    "pose": "idle_01",
-    "stage": "plain_stage_01",
+    "species": "",
+    "body": "",
+    "head": "",
+    "clothing": "",
+    "gear": "",
+    "pose": "",
+    "stage": "",
     "base": "round_base_32mm",
     "scale": {
       "mm": 32
@@ -583,6 +162,9 @@
       "clothing_secondary": "#8B0000",
       "gear_metal": "#d8dee9",
       "stage": "#29313d"
+    },
+    "assembly": {
+      "placements": []
     }
   }
 }

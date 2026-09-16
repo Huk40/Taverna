@@ -57,7 +57,7 @@ func main() {
 	artifactBuilder := exportjob.NewArtifactBuilder(cfg.ExportArtifactDir)
 	exportRepo := exportjob.NewRepository(pool, artifactBuilder)
 	exportHandler := exportjob.NewHandler(exportRepo, assemblyService, cfg.ExportArtifactDir, logger)
-	router := app.NewRouter(projectHandler, catalogHandler, exportHandler, modelAssetHandler, assemblyHandler, pool, cfg.CORSAllowedOrigins)
+	router := app.NewRouter(projectHandler, catalogHandler, exportHandler, modelAssetHandler, assemblyHandler, pool, cfg.CORSAllowedOrigins, app.AdminAccess{Token: cfg.AdminToken, MaxUploadBytes: cfg.MaxModelAssetBytes})
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,

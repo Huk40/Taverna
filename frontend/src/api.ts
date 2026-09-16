@@ -96,6 +96,23 @@ export function previewAssembly(config: CharacterConfig): Promise<AssemblyManife
   });
 }
 
+export async function downloadSTL(config: CharacterConfig): Promise<Blob> {
+  const response = await fetch(`${API_URL}/api/exports/stl`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "model/stl" },
+    body: JSON.stringify({ config }),
+  });
+  if (!response.ok) {
+    const payload = parseErrorPayload(await response.text());
+    throw new APIError(response.status, errorMessageFromPayload(payload) ?? "Не удалось подготовить STL. Попробуйте ещё раз.", payload);
+  }
+  const file = await response.blob();
+  if (!response.headers.get("Content-Type")?.includes("model/stl") || file.size < 134) {
+    throw new Error("Сервер не вернул STL с геометрией модели.");
+  }
+  return file;
+}
+
 export function createProject(payload: ProjectPayload): Promise<Project> {
   return request<Project>("/api/projects", {
     method: "POST",
@@ -153,13 +170,23 @@ export function listModelAssets(slot?: string): Promise<ModelAsset[]> {
   return request<ModelAsset[]>(`/api/model-assets${query}`);
 }
 
+export type AdminSettings = { configured: boolean; max_upload_bytes: number };
+
+export function getAdminSettings(): Promise<AdminSettings> {
+  return request<AdminSettings>("/api/admin/session");
+}
+
+export function verifyAdminToken(token: string): Promise<{ authenticated: boolean }> {
+  return request("/api/admin/session", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+}
+
 export function uploadModelAsset(payload: {
   file: File;
   label: string;
   slot: string;
   attachmentPoint: string;
   assemblyPoints?: ModelAssetAssemblyPoint[];
-}): Promise<ModelAsset> {
+}, adminToken: string): Promise<ModelAsset> {
   const formData = new FormData();
   formData.append("file", payload.file);
   formData.append("label", payload.label);
@@ -171,6 +198,7 @@ export function uploadModelAsset(payload: {
 
   return request<ModelAsset>("/api/model-assets", {
     method: "POST",
+    headers: { Authorization: `Bearer ${adminToken}` },
     body: formData,
   });
 }
@@ -178,9 +206,10 @@ export function uploadModelAsset(payload: {
 export function updateModelAsset(id: string, payload: {
   label: string;
   assemblyPoints: ModelAssetAssemblyPoint[];
-}): Promise<ModelAsset> {
+}, adminToken: string): Promise<ModelAsset> {
   return request<ModelAsset>(`/api/model-assets/${id}`, {
     method: "PUT",
+    headers: { Authorization: `Bearer ${adminToken}` },
     body: JSON.stringify({
       label: payload.label,
       assembly_points: payload.assemblyPoints,
@@ -188,9 +217,10 @@ export function updateModelAsset(id: string, payload: {
   });
 }
 
-export function deleteModelAsset(id: string): Promise<void> {
+export function deleteModelAsset(id: string, adminToken: string): Promise<void> {
   return request<void>(`/api/model-assets/${id}`, {
     method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
   });
 }
 

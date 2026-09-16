@@ -198,16 +198,22 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
-	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadBytes)
-	if err := r.ParseMultipartForm(h.maxUploadBytes); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "multipart payload is required and must fit upload limit"})
-		return
-	}
+	// Reserve space for multipart fields/boundaries; the limit applies to the file.
+	r.Body = http.MaxBytesReader(w, r.Body, h.maxUploadBytes+(1<<20))
 	defer func() {
 		if r.MultipartForm != nil {
 			_ = r.MultipartForm.RemoveAll()
 		}
 	}()
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		var sizeError *http.MaxBytesError
+		if errors.As(err, &sizeError) {
+			writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "Размер загрузки превышает лимит сервера"})
+		} else {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "multipart payload is required"})
+		}
+		return
+	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
@@ -222,7 +228,11 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file must be one of: .glb, .gltf, .obj, .stl, .3mf"})
 		return
 	}
-	if header.Size <= 0 || header.Size > h.maxUploadBytes {
+	if header.Size > h.maxUploadBytes {
+		writeJSON(w, http.StatusRequestEntityTooLarge, map[string]string{"error": "Размер файла превышает лимит сервера"})
+		return
+	}
+	if header.Size <= 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file size is outside allowed range"})
 		return
 	}
@@ -339,8 +349,9 @@ func (h *Handler) file(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	w.Header().Set("Content-Type", asset.ContentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", asset.FileName))
+	w.Header().Set("Content-Type", contentTypeFor("", asset.FileName))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": asset.FileName}))
 	http.ServeFile(w, r, storagePath)
 }
 
@@ -567,15 +578,22 @@ func formatForFileName(fileName string) (string, bool) {
 	return format, ok
 }
 
-func contentTypeFor(value string, fileName string) string {
-	value = strings.TrimSpace(value)
-	if value != "" && value != "application/octet-stream" {
-		return value
+func contentTypeFor(_ string, fileName string) string {
+	// Do not let a multipart Content-Type turn an uploaded model into HTML.
+	switch strings.ToLower(filepath.Ext(fileName)) {
+	case ".glb":
+		return "model/gltf-binary"
+	case ".gltf":
+		return "model/gltf+json"
+	case ".obj":
+		return "model/obj"
+	case ".stl":
+		return "model/stl"
+	case ".3mf":
+		return "model/3mf"
+	default:
+		return "application/octet-stream"
 	}
-	if detected := mime.TypeByExtension(filepath.Ext(fileName)); detected != "" {
-		return detected
-	}
-	return "application/octet-stream"
 }
 
 func randomUUIDLikeID() (string, error) {

@@ -1,0 +1,45 @@
+{
+  "species": [
+    "human_01",
+    "elf_01",
+    "dwarf_01",
+    "orc_01"
+  ],
+  "body": [
+    "balanced_body_01",
+    "compact_body_01",
+    "heroic_body_01"
+  ],
+  "head": [
+    "default_head_01",
+    "square_head_01",
+    "noble_head_01"
+  ],
+  "clothing": [
+    "basic_armor_01",
+    "travel_cloak_01",
+    "heavy_plate_01",
+    "mage_robe_01"
+  ],
+  "gear": [
+    "sword_01",
+    "axe_01",
+    "staff_01",
+    "longbow_01",
+    "tower_shield_01",
+    "none_01"
+  ],
+  "pose": [
+    "idle_01",
+    "guard_01",
+    "victory_01"
+  ],
+  "stage": [
+    "plain_stage_01",
+    "dungeon_stage_01",
+    "ruins_stage_01"
+  ],
+  "base": [
+    "round_base_40mm"
+  ]
+}

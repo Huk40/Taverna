@@ -1,6 +1,82 @@
 package modelasset
 
-import "testing"
+import (
+	"bytes"
+	"io"
+	"log/slog"
+	"mime/multipart"
+	"net/http/httptest"
+	"os"
+	"testing"
+
+	"taverna/backend/internal/catalog"
+)
+
+func TestUploadLimitsAndRejectedFileCleanup(t *testing.T) {
+	service, err := catalog.NewService()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, filename string
+		size, status   int
+	}{
+		{"empty", "empty.obj", 0, 400},
+		{"unsupported format", "test.exe", 10, 400},
+		{"multipart overhead allowed", "broken.obj", 64, 400},
+		{"file limit", "large.obj", 65, 413},
+		{"body limit", "huge.obj", (1 << 20) + 65, 413},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			storage := t.TempDir()
+			handler := NewHandler(nil, service, storage, 64, slog.New(slog.NewTextHandler(io.Discard, nil)))
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			part, err := writer.CreateFormFile("file", tc.filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := part.Write(bytes.Repeat([]byte("x"), tc.size)); err != nil {
+				t.Fatal(err)
+			}
+			if err := writer.WriteField("slot", "gear"); err != nil {
+				t.Fatal(err)
+			}
+			if err := writer.WriteField("attachment_point", "right_hand"); err != nil {
+				t.Fatal(err)
+			}
+			if err := writer.Close(); err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest("POST", "/api/model-assets", &body)
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			res := httptest.NewRecorder()
+			handler.Collection(res, req)
+			if res.Code != tc.status {
+				t.Fatalf("status=%d, body=%s", res.Code, res.Body)
+			}
+			if tc.name == "multipart overhead allowed" && !bytes.Contains(res.Body.Bytes(), []byte("triangle geometry")) {
+				t.Fatalf("expected geometry rejection after multipart parsing, got %s", res.Body)
+			}
+			entries, err := os.ReadDir(storage)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 0 {
+				t.Fatal("rejected upload left a file in storage")
+			}
+		})
+	}
+}
+
+func TestModelContentTypeIgnoresUntrustedHeader(t *testing.T) {
+	if got := contentTypeFor("text/html", "sword.OBJ"); got != "model/obj" {
+		t.Fatalf("got unsafe content type %q", got)
+	}
+	if got := contentTypeFor("text/html", "sword.unknown"); got != "application/octet-stream" {
+		t.Fatalf("got unsafe content type %q", got)
+	}
+}
 
 func TestFormatForFileName(t *testing.T) {
 	tests := map[string]string{

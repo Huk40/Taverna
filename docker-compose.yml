@@ -26,6 +26,7 @@ services:
       MODEL_ASSET_DIR: /app/storage/model-assets
       EXPORT_ARTIFACT_DIR: /app/storage/export-artifacts
       MAX_MODEL_ASSET_BYTES: "52428800"
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
     ports:
       - "8080:8080"
     volumes:
