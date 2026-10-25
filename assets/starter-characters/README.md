@@ -20,4 +20,4 @@
 
 Исходный генератор: `scripts/create-starter-characters.mjs`. Команда `node scripts/create-starter-characters.mjs` пересоздаёт файлы.
 
-Загрузка: `node --env-file=.env scripts/publish-starter-characters.mjs`. Опция `--replace-library` удаляет остальные загруженные ассеты после сохранения копий в локальную папку `backups/`.
+Загрузка: задайте `TEST_ADMIN_EMAIL` и `TEST_ADMIN_PASSWORD` для зарегистрированного администратора, затем выполните `node --env-file=.env scripts/publish-starter-characters.mjs`. Роль назначается на сервере командой `docker compose exec backend /app/taverna-admin -email owner@example.com`. Опция `--replace-library` удаляет остальные загруженные ассеты после сохранения копий в локальную папку `backups/`; используемые в проектах ассеты защищены от удаления.

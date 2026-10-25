@@ -1,16 +1,22 @@
 package modelasset
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"math"
-	"os"
 )
 
 type Triangle [3]Vector3
 
 func ReadGLBTriangles(path string) ([]Triangle, error) {
-	raw, err := os.ReadFile(path)
+	return ReadGLBTrianglesContext(context.Background(), path)
+}
+func ReadGLBTrianglesContext(ctx context.Context, path string) ([]Triangle, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	raw, err := readGeometryFile(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("read GLB triangles: %w", err)
 	}
@@ -28,16 +34,19 @@ func ReadGLBTriangles(path string) ([]Triangle, error) {
 				return nil, fmt.Errorf("GLB mesh %d primitive %d has no POSITION attribute", meshIndex, primitiveIndex)
 			}
 
-			positions, err := readGLBPositionAccessor(document, binChunk, positionAccessorIndex)
+			positions, err := readGLBPositionAccessor(ctx, document, binChunk, positionAccessorIndex)
 			if err != nil {
 				return nil, fmt.Errorf("read GLB mesh %d primitive %d positions: %w", meshIndex, primitiveIndex, err)
 			}
 
-			indices, err := readGLBPrimitiveIndices(document, binChunk, primitive, len(positions))
+			indices, err := readGLBPrimitiveIndices(ctx, document, binChunk, primitive, len(positions))
 			if err != nil {
 				return nil, fmt.Errorf("read GLB mesh %d primitive %d indices: %w", meshIndex, primitiveIndex, err)
 			}
 
+			if len(triangles)+primitiveTriangleCount(len(indices), primitiveMode(primitive)) > MaxGeometryTriangles {
+				return nil, fmt.Errorf("too many geometry indices")
+			}
 			triangles = append(triangles, trianglesForGLBPrimitive(positions, indices, primitiveMode(primitive))...)
 		}
 	}
@@ -48,7 +57,7 @@ func ReadGLBTriangles(path string) ([]Triangle, error) {
 	return triangles, nil
 }
 
-func readGLBPositionAccessor(document glbDocument, binChunk []byte, accessorIndex int) ([]Vector3, error) {
+func readGLBPositionAccessor(ctx context.Context, document glbDocument, binChunk []byte, accessorIndex int) ([]Vector3, error) {
 	accessor, err := glbAccessorAt(document, accessorIndex)
 	if err != nil {
 		return nil, err
@@ -72,9 +81,20 @@ func readGLBPositionAccessor(document glbDocument, binChunk []byte, accessorInde
 		return nil, fmt.Errorf("POSITION accessor %d has byteStride smaller than VEC3 FLOAT", accessorIndex)
 	}
 
+	if accessor.Count > maxGeometryVertices {
+		return nil, fmt.Errorf("too many vertices")
+	}
+	if err := validateAccessor(accessor.Count, stride, 12, start, view.ByteOffset+view.ByteLength); err != nil {
+		return nil, err
+	}
 	positions := make([]Vector3, 0, accessor.Count)
 	viewEnd := view.ByteOffset + view.ByteLength
 	for index := 0; index < accessor.Count; index++ {
+		if index%1024 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
 		offset := start + index*stride
 		if offset+12 > viewEnd || offset+12 > len(binChunk) {
 			return nil, fmt.Errorf("POSITION accessor %d reads past bufferView", accessorIndex)
@@ -89,7 +109,7 @@ func readGLBPositionAccessor(document glbDocument, binChunk []byte, accessorInde
 	return positions, nil
 }
 
-func readGLBPrimitiveIndices(document glbDocument, binChunk []byte, primitive glbPrimitive, positionCount int) ([]int, error) {
+func readGLBPrimitiveIndices(ctx context.Context, document glbDocument, binChunk []byte, primitive glbPrimitive, positionCount int) ([]int, error) {
 	if primitive.Indices == nil {
 		indices := make([]int, positionCount)
 		for index := range indices {
@@ -126,9 +146,17 @@ func readGLBPrimitiveIndices(document glbDocument, binChunk []byte, primitive gl
 		return nil, fmt.Errorf("index accessor %d has byteStride smaller than component size", accessorIndex)
 	}
 
+	if err := validateAccessor(accessor.Count, stride, componentSize, start, view.ByteOffset+view.ByteLength); err != nil {
+		return nil, err
+	}
 	indices := make([]int, 0, accessor.Count)
 	viewEnd := view.ByteOffset + view.ByteLength
 	for index := 0; index < accessor.Count; index++ {
+		if index%1024 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
 		offset := start + index*stride
 		if offset+componentSize > viewEnd || offset+componentSize > len(binChunk) {
 			return nil, fmt.Errorf("index accessor %d reads past bufferView", accessorIndex)
@@ -160,7 +188,7 @@ func glbAccessorBufferRange(document glbDocument, binChunk []byte, accessor glbA
 
 	start := view.ByteOffset + accessor.ByteOffset
 	viewEnd := view.ByteOffset + view.ByteLength
-	if start < 0 || viewEnd > len(binChunk) || start > viewEnd {
+	if view.ByteOffset < 0 || view.ByteLength < 0 || accessor.ByteOffset < 0 || view.ByteOffset > len(binChunk) || view.ByteLength > len(binChunk)-view.ByteOffset || start < view.ByteOffset || start < 0 || viewEnd > len(binChunk) || start > viewEnd {
 		return glbBufferView{}, 0, fmt.Errorf("accessor %d has invalid buffer range", accessorIndex)
 	}
 	return view, start, nil

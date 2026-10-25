@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"taverna/backend/internal/catalog"
+	"taverna/backend/internal/httpx"
 	"taverna/backend/internal/modelasset"
 	"taverna/backend/internal/project"
 )
@@ -68,6 +69,9 @@ func (s *Service) ManifestForConfig(ctx context.Context, projectID string, confi
 
 	bodyHeight := bodyHeightFor(config.Body)
 	for _, placement := range config.Assembly.Placements {
+		if !httpx.UUID(placement.AssetID) {
+			return Manifest{}, fmt.Errorf("%w: invalid asset ID", ErrInvalidAssembly)
+		}
 		asset, err := s.assets.Get(ctx, placement.AssetID)
 		if err != nil {
 			if errors.Is(err, modelasset.ErrNotFound) {

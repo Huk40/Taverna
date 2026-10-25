@@ -3,11 +3,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { adminSession } from "./admin-session.mjs";
 
 const base = process.env.TEST_API_URL ?? "http://localhost:8080";
-const token = process.env.ADMIN_TOKEN;
-assert.ok(token?.length >= 32, "ADMIN_TOKEN must be configured");
-const headers = { Authorization: `Bearer ${token}` };
+const headers = await adminSession(base);
 const source = new URL("../assets/starter-characters/", import.meta.url);
 const entries = JSON.parse(await readFile(new URL("manifest.json", source), "utf8"));
 async function request(path, options = {}, status = 200) {
@@ -43,7 +42,7 @@ for (const entry of entries) {
   published.push(asset);
   console.log(`Ready: ${asset.label} (${asset.metadata.triangle_count} triangles)`);
 }
-await writeFile(new URL("published.local.json", source), JSON.stringify(published, null, 2));
+await writeFile(process.env.PUBLISHED_MANIFEST_PATH ?? new URL("published.local.json", source), JSON.stringify(published, null, 2));
 
 if (process.argv.includes("--replace-library")) {
   const remove = previous.filter((asset) => !published.some((item) => item.id === asset.id));
@@ -64,3 +63,4 @@ if (process.argv.includes("--replace-library")) {
   assert.deepEqual(final.map((asset) => asset.id).sort(), published.map((asset) => asset.id).sort());
   console.log(`Library now contains exactly ${final.length} starter models.`);
 }
+await request("/api/auth/logout", { method: "POST", headers }, 204);

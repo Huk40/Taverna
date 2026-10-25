@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"taverna/backend/internal/httpx"
 )
 
 type Handler struct {
@@ -27,7 +29,7 @@ func (h *Handler) ProjectAssembly(w http.ResponseWriter, r *http.Request) {
 
 	projectID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/projects/"), "/assembly")
 	projectID = strings.Trim(projectID, "/")
-	if projectID == "" || strings.Contains(projectID, "/") {
+	if !httpx.UUID(projectID) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 		return
 	}
@@ -56,16 +58,10 @@ func (h *Handler) PreviewAssembly(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	defer r.Body.Close()
-
 	var payload struct {
 		Config json.RawMessage `json:"config"`
 	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid assembly preview payload"})
+	if !httpx.Decode(w, r, &payload, 1<<20, false) {
 		return
 	}
 	if len(payload.Config) == 0 || !json.Valid(payload.Config) {

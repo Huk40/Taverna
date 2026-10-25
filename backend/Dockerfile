@@ -1,4 +1,4 @@
-FROM golang:1.23-alpine AS build
+FROM golang:1.26.10-alpine AS build
 
 WORKDIR /src
 
@@ -7,23 +7,24 @@ RUN go mod download
 
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o /out/taverna ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -o /out/taverna-admin ./cmd/admin
 
-FROM alpine:3.20
+FROM alpine:3.23
 
-RUN apk add --no-cache su-exec
 RUN adduser -D -H appuser
 
 WORKDIR /app
 
 COPY --from=build /out/taverna /app/taverna
+COPY --from=build /out/taverna-admin /app/taverna-admin
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY migrations ./migrations
-COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 RUN mkdir -p /app/storage/model-assets /app/storage/export-artifacts && chown -R appuser:appuser /app/storage
-RUN chmod +x /app/docker-entrypoint.sh
 
 ENV PORT=8080
 ENV MIGRATIONS_DIR=/app/migrations
 
 EXPOSE 8080
 
-ENTRYPOINT ["/app/docker-entrypoint.sh"]
+USER appuser
+ENTRYPOINT ["/app/taverna"]

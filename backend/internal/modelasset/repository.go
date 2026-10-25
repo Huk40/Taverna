@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"taverna/backend/internal/httpx"
 )
 
 var ErrNotFound = errors.New("model asset not found")
@@ -43,7 +45,11 @@ func (r *Repository) Create(ctx context.Context, request CreateRequest) (ModelAs
 	return scanAsset(row)
 }
 
-func (r *Repository) List(ctx context.Context, slot string) ([]ModelAsset, error) {
+func (r *Repository) List(ctx context.Context, slot string, pages ...httpx.Page) ([]ModelAsset, error) {
+	page := httpx.Page{Limit: 50}
+	if len(pages) > 0 {
+		page = pages[0]
+	}
 	var (
 		rows pgx.Rows
 		err  error
@@ -53,15 +59,15 @@ func (r *Repository) List(ctx context.Context, slot string) ([]ModelAsset, error
 		rows, err = r.pool.Query(ctx, `
 			SELECT id::text, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, metadata, created_at, updated_at
 			FROM model_assets
-			ORDER BY updated_at DESC, created_at DESC
-		`)
+			ORDER BY updated_at DESC, id DESC LIMIT $1 OFFSET $2
+		`, page.Limit, page.Offset)
 	} else {
 		rows, err = r.pool.Query(ctx, `
 			SELECT id::text, label, slot, attachment_point, file_name, content_type, format, size_bytes, storage_path, assembly_points, metadata, created_at, updated_at
 			FROM model_assets
 			WHERE slot = $1
-			ORDER BY updated_at DESC, created_at DESC
-		`, strings.TrimSpace(slot))
+			ORDER BY updated_at DESC, id DESC LIMIT $2 OFFSET $3
+		`, strings.TrimSpace(slot), page.Limit, page.Offset)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query model assets: %w", err)
@@ -297,6 +303,9 @@ func scanAsset(scanner assetScanner) (ModelAsset, error) {
 }
 
 func normalizeCreateRequest(request CreateRequest) CreateRequest {
+	if request.AssemblyPoints == nil {
+		request.AssemblyPoints = []AssemblyPoint{}
+	}
 	request.Label = strings.TrimSpace(request.Label)
 	if request.Label == "" {
 		request.Label = request.FileName

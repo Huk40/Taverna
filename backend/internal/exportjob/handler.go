@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"path/filepath"
@@ -12,23 +11,25 @@ import (
 	"time"
 
 	"taverna/backend/internal/assembly"
+	"taverna/backend/internal/httpx"
 )
 
 type Handler struct {
 	repo        *Repository
+	service     *Service
 	assembly    *assembly.Service
 	artifactDir string
 	logger      *slog.Logger
 }
 
-func NewHandler(repo *Repository, assemblyService *assembly.Service, artifactDir string, logger *slog.Logger) *Handler {
-	return &Handler{repo: repo, assembly: assemblyService, artifactDir: artifactDir, logger: logger}
+func NewHandler(repo *Repository, service *Service, assemblyService *assembly.Service, artifactDir string, logger *slog.Logger) *Handler {
+	return &Handler{repo: repo, service: service, assembly: assemblyService, artifactDir: artifactDir, logger: logger}
 }
 
 func (h *Handler) ProjectExports(w http.ResponseWriter, r *http.Request) {
 	projectID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/api/projects/"), "/exports")
 	projectID = strings.Trim(projectID, "/")
-	if projectID == "" || strings.Contains(projectID, "/") {
+	if !httpx.UUID(projectID) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 		return
 	}
@@ -44,26 +45,12 @@ func (h *Handler) ProjectExports(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) createProjectExport(w http.ResponseWriter, r *http.Request, projectID string) {
-	defer r.Body.Close()
 	var request CreateRequest
-	if r.Body != nil {
-		decoder := json.NewDecoder(r.Body)
-		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&request); err != nil {
-			if errors.Is(err, io.EOF) {
-				request = CreateRequest{}
-			} else {
-				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid export payload"})
-				return
-			}
-		}
+	if !httpx.Decode(w, r, &request, 8<<10, true) {
+		return
 	}
 
-	if request.Format == "" && request.Target == "" {
-		request = CreateRequest{}
-	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
 	manifest, err := h.assembly.Manifest(ctx, projectID)
@@ -79,7 +66,7 @@ func (h *Handler) createProjectExport(w http.ResponseWriter, r *http.Request, pr
 		return
 	}
 
-	job, err := h.repo.Create(ctx, projectID, request, manifest)
+	job, err := h.service.Create(ctx, projectID, request, manifest)
 	if err != nil {
 		if errors.Is(err, ErrInvalidRequest) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid export payload"})
@@ -100,7 +87,11 @@ func (h *Handler) listProjectExports(w http.ResponseWriter, r *http.Request, pro
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	jobs, err := h.repo.ListByProject(ctx, projectID)
+	page, ok := httpx.Pagination(w, r)
+	if !ok {
+		return
+	}
+	jobs, err := h.repo.ListByProject(ctx, projectID, page)
 	if err != nil {
 		if errors.Is(err, ErrProjectNotFound) {
 			writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
@@ -110,6 +101,7 @@ func (h *Handler) listProjectExports(w http.ResponseWriter, r *http.Request, pro
 		return
 	}
 
+	httpx.NextPage(w, page, len(jobs))
 	writeJSON(w, http.StatusOK, jobs)
 }
 
@@ -134,7 +126,7 @@ func (h *Handler) Item(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := strings.TrimSpace(path)
-	if id == "" || strings.Contains(id, "/") {
+	if !httpx.UUID(id) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "export job not found"})
 		return
 	}
@@ -156,6 +148,10 @@ func (h *Handler) Item(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) artifact(w http.ResponseWriter, r *http.Request, id string) {
+	if !httpx.UUID(id) {
+		httpx.Error(w, 404, "export job not found")
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
@@ -181,12 +177,12 @@ func (h *Handler) artifact(w http.ResponseWriter, r *http.Request, id string) {
 	var payload struct {
 		ArtifactFile ArtifactResult `json:"artifact_file"`
 	}
-	if err := json.Unmarshal(job.Artifact, &payload); err != nil || payload.ArtifactFile.StoragePath == "" {
+	if err := json.Unmarshal(job.Artifact, &payload); err != nil || job.Status != StatusCompleted || payload.ArtifactFile.URL == "" || !allowedFormat(job.Format) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "export artifact file not found"})
 		return
 	}
 
-	storagePath := filepath.Clean(payload.ArtifactFile.StoragePath)
+	storagePath := filepath.Join(h.artifactDir, job.ID+"."+job.Format)
 	storageRoot := filepath.Clean(h.artifactDir)
 	rel, err := filepath.Rel(storageRoot, storagePath)
 	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {

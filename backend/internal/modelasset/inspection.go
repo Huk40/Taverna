@@ -3,6 +3,7 @@ package modelasset
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -16,6 +17,9 @@ import (
 const scannerMaxTokenBytes = 1024 * 1024
 
 func InspectGeometry(path string, format string) GeometryMetadata {
+	return InspectGeometryContext(context.Background(), path, format)
+}
+func InspectGeometryContext(ctx context.Context, path string, format string) GeometryMetadata {
 	format = strings.TrimSpace(strings.ToLower(format))
 	var (
 		metadata GeometryMetadata
@@ -24,15 +28,18 @@ func InspectGeometry(path string, format string) GeometryMetadata {
 
 	switch format {
 	case FormatOBJ:
-		metadata, err = inspectOBJGeometry(path)
+		metadata, err = inspectOBJGeometry(ctx, path)
 	case FormatSTL:
-		metadata, err = inspectSTLGeometry(path)
+		metadata, err = inspectSTLGeometry(ctx, path)
 	case FormatGLB:
-		metadata, err = inspectGLBGeometry(path)
+		metadata, err = inspectGLBGeometry(ctx, path)
+		if err == nil {
+			_, err = ReadGLBTrianglesContext(ctx, path)
+		}
 	case FormatGLTF:
-		metadata, err = inspectGLTFGeometry(path)
+		metadata, err = inspectTriangleGeometry(ctx, path, FormatGLTF)
 	case Format3MF:
-		metadata, err = inspect3MFGeometry(path)
+		metadata, err = inspectTriangleGeometry(ctx, path, Format3MF)
 	default:
 		return normalizeGeometryMetadata(GeometryMetadata{
 			Status:   "unknown",
@@ -51,14 +58,14 @@ func InspectGeometry(path string, format string) GeometryMetadata {
 	return normalizeGeometryMetadata(metadata)
 }
 
-func inspectOBJGeometry(path string) (GeometryMetadata, error) {
+func inspectOBJGeometry(ctx context.Context, path string) (GeometryMetadata, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return GeometryMetadata{}, fmt.Errorf("read OBJ geometry: %w", err)
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(contextReader{ctx, file})
 	scanner.Buffer(make([]byte, 64*1024), scannerMaxTokenBytes)
 
 	bounds := geometryBoundsAccumulator{}
@@ -102,18 +109,18 @@ func inspectOBJGeometry(path string) (GeometryMetadata, error) {
 	return finishGeometryMetadata("obj", vertexCount, faceCount, triangleCount, bounds, warnings), nil
 }
 
-func inspectSTLGeometry(path string) (GeometryMetadata, error) {
+func inspectSTLGeometry(ctx context.Context, path string) (GeometryMetadata, error) {
 	triangleCount, isBinary, err := binarySTLTriangleCount(path)
 	if err != nil {
 		return GeometryMetadata{}, fmt.Errorf("inspect STL geometry: %w", err)
 	}
 	if isBinary {
-		return inspectBinarySTLGeometry(path, triangleCount)
+		return inspectBinarySTLGeometry(ctx, path, triangleCount)
 	}
-	return inspectASCIISTLGeometry(path)
+	return inspectASCIISTLGeometry(ctx, path)
 }
 
-func inspectBinarySTLGeometry(path string, triangleTotal uint32) (GeometryMetadata, error) {
+func inspectBinarySTLGeometry(ctx context.Context, path string, triangleTotal uint32) (GeometryMetadata, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return GeometryMetadata{}, fmt.Errorf("read binary STL geometry: %w", err)
@@ -126,6 +133,11 @@ func inspectBinarySTLGeometry(path string, triangleTotal uint32) (GeometryMetada
 
 	bounds := geometryBoundsAccumulator{}
 	for index := uint32(0); index < triangleTotal; index++ {
+		if index%1024 == 0 {
+			if err := ctx.Err(); err != nil {
+				return GeometryMetadata{}, err
+			}
+		}
 		var values [12]float32
 		if err := binary.Read(file, binary.LittleEndian, &values); err != nil {
 			return GeometryMetadata{}, fmt.Errorf("read binary STL triangle %d: %w", index, err)
@@ -144,14 +156,14 @@ func inspectBinarySTLGeometry(path string, triangleTotal uint32) (GeometryMetada
 	return finishGeometryMetadata("binary_stl", triangles*3, triangles, triangles, bounds, []string{}), nil
 }
 
-func inspectASCIISTLGeometry(path string) (GeometryMetadata, error) {
+func inspectASCIISTLGeometry(ctx context.Context, path string) (GeometryMetadata, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return GeometryMetadata{}, fmt.Errorf("read ASCII STL geometry: %w", err)
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(contextReader{ctx, file})
 	scanner.Buffer(make([]byte, 64*1024), scannerMaxTokenBytes)
 
 	bounds := geometryBoundsAccumulator{}
@@ -196,8 +208,8 @@ func inspectASCIISTLGeometry(path string) (GeometryMetadata, error) {
 	return finishGeometryMetadata("ascii_stl", vertexCount, facetCount, triangleCount, bounds, warnings), nil
 }
 
-func inspectGLBGeometry(path string) (GeometryMetadata, error) {
-	raw, err := os.ReadFile(path)
+func inspectGLBGeometry(ctx context.Context, path string) (GeometryMetadata, error) {
+	raw, err := readGeometryFile(ctx, path)
 	if err != nil {
 		return GeometryMetadata{}, fmt.Errorf("read GLB geometry: %w", err)
 	}
@@ -221,7 +233,7 @@ func inspectGLBGeometry(path string) (GeometryMetadata, error) {
 			}
 
 			if _, seen := seenPositionAccessors[positionAccessorIndex]; !seen {
-				count, err := addGLBPositionAccessorBounds(document, binChunk, positionAccessorIndex, &bounds)
+				count, err := addGLBPositionAccessorBounds(ctx, document, binChunk, positionAccessorIndex, &bounds)
 				if err != nil {
 					warnings = appendGeometryWarning(warnings, err.Error())
 				} else {
@@ -416,7 +428,7 @@ func parseGLB(raw []byte) (glbDocument, []byte, []string, error) {
 	return document, binChunk, warnings, nil
 }
 
-func addGLBPositionAccessorBounds(document glbDocument, binChunk []byte, accessorIndex int, bounds *geometryBoundsAccumulator) (int, error) {
+func addGLBPositionAccessorBounds(ctx context.Context, document glbDocument, binChunk []byte, accessorIndex int, bounds *geometryBoundsAccumulator) (int, error) {
 	accessor, err := glbAccessorAt(document, accessorIndex)
 	if err != nil {
 		return 0, err
@@ -428,6 +440,9 @@ func addGLBPositionAccessorBounds(document glbDocument, binChunk []byte, accesso
 		return 0, fmt.Errorf("GLB POSITION accessor %d has no vertices", accessorIndex)
 	}
 
+	if accessor.Count > maxGeometryVertices {
+		return 0, fmt.Errorf("too many GLB vertices")
+	}
 	if len(accessor.Min) >= 3 && len(accessor.Max) >= 3 {
 		bounds.Add(Vector3{accessor.Min[0], accessor.Min[1], accessor.Min[2]})
 		bounds.Add(Vector3{accessor.Max[0], accessor.Max[1], accessor.Max[2]})
@@ -464,6 +479,11 @@ func addGLBPositionAccessorBounds(document glbDocument, binChunk []byte, accesso
 	}
 
 	for index := 0; index < accessor.Count; index++ {
+		if index%1024 == 0 {
+			if err := ctx.Err(); err != nil {
+				return 0, err
+			}
+		}
 		positionOffset := start + index*stride
 		if positionOffset+12 > viewEnd || positionOffset+12 > len(binChunk) {
 			return 0, fmt.Errorf("GLB POSITION accessor %d reads past bufferView", accessorIndex)

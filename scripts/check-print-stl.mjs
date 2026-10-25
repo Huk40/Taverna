@@ -4,7 +4,8 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 const api = process.env.TEST_API_URL ?? "http://localhost:8080";
 const get = async (path) => { const response = await fetch(api + path); assert.equal(response.status, 200); return response.json(); };
-const [catalog, assets, projects] = await Promise.all([get("/api/catalog"), get("/api/model-assets"), get("/api/projects")]);
+const [catalog, assets] = await Promise.all([get("/api/catalog"), get("/api/model-assets")]);
+assert.equal((await fetch(api + "/api/projects")).status, 401, "Guest projects must be private");
 const output = new URL("../artifacts/stl/", import.meta.url);
 await mkdir(output, { recursive: true });
 const hashes = new Set();
@@ -51,6 +52,6 @@ for (const bodyName of ["male-body.glb", "female-body.glb"]) {
 assert.equal(hashes.size, count, "Selections or height changes are ignored");
 const empty = await fetch(api + "/api/exports/stl", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config: catalog.defaults }) });
 assert.equal(empty.status, 400, "Empty assembly must not download a file");
-assert.deepEqual(await get("/api/projects"), projects, "Export unexpectedly saved or modified a project");
+assert.equal((await fetch(api + "/api/projects")).status, 401);
 assert.equal((await get("/api/model-assets")).length, assets.length);
-console.log(`PASS: ${count} STL downloads; all body/head combinations, 32/40 mm, Z-up, base included, no project writes. Samples: artifacts/stl/`);
+console.log(`PASS: ${count} guest STL downloads; all body/head combinations, 32/40 mm, Z-up, base included. Samples: artifacts/stl/`);

@@ -13,3 +13,6 @@ frontend/dist/
 backups/
 artifacts/
 *.local.json
+backend/coverage.out
+/taverna.dump
+/storage-backup/

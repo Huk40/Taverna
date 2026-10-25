@@ -27,7 +27,7 @@ import type { LucideIcon } from "lucide-react";
 import CharacterPreview from "./CharacterPreview";
 import AssetPreview from "./AssetPreview";
 import AssetLibrary, { assetSlotLabels } from "./AssetLibrary";
-import { AdminGate, useAdminAccess } from "./AdminAccess";
+import { AccountControl, AdminGate } from "./AdminAccess";
 import { APIError, exportArtifactURL } from "./api";
 import type {
   AssemblyPlacement,
@@ -89,6 +89,8 @@ type EditorShellProps = {
   onRemoveProject: (id: string) => void;
   onRemoveAssemblyPlacement: (id: string) => void;
   onSave: () => void;
+  onSaveCopy: () => void;
+  onNew: () => void;
   onScaleChange: (value: number) => void;
   onSlotChange: (slot: SlotID, partID: string) => void;
   onUpdateAssemblyPlacement: (id: string, patch: Partial<AssemblyPlacement>) => void;
@@ -137,6 +139,8 @@ export default function EditorShell({
   onRemoveProject,
   onRemoveAssemblyPlacement,
   onSave,
+  onSaveCopy,
+  onNew,
   onScaleChange,
   onSlotChange,
   onUpdateAssemblyPlacement,
@@ -171,6 +175,9 @@ export default function EditorShell({
             disabled={isExporting || !catalog || config.assembly.placements.length === 0}>
             <FileDown size={18} /> {isExporting ? "Подготовка…" : "Скачать STL"}
           </button>
+          <AccountControl projects={projects} selectedProjectId={selectedProjectId} isSaving={isSaving} isLoading={isLoading}
+            projectName={projectName} status={status} onProjectNameChange={onProjectNameChange} onNew={onNew} onSaveCopy={onSaveCopy}
+            onSave={onSave} onOpenProject={onOpenProject} onRemoveProject={onRemoveProject} />
         </div>
       </header>
       <section className="minimal-workspace">
@@ -189,6 +196,7 @@ export default function EditorShell({
           {catalog && <AssetLibrary compact disabled={isExporting} key={modelCategory} assets={modelAssets} slot={modelCategory}
             placements={config.assembly.placements} onAdd={onAddAssemblyPlacement} />}
           <div className="print-note">
+            {status !== "Готово" && <p role="status">{status}</p>}
             <p>Высота — вместе с подставкой. Проверка сетки и поддержек — в слайсере.</p>
             {downloadError ? <p className="download-error" role="alert">{downloadError}</p>
               : <p role="status" aria-live="polite">{downloadMessage}</p>}
@@ -458,13 +466,12 @@ function AssetPanel({
   onUpdateModelAsset,
   onUploadAsset,
 }: AssetPanelProps) {
-  const { settings } = useAdminAccess();
   const fileInput = useRef<HTMLInputElement>(null);
   const [uploadError, setUploadError] = useState("");
   const [previewReady, setPreviewReady] = useState(false);
   const [uploadNotice, setUploadNotice] = useState("");
   const [previewID, setPreviewID] = useState<string | null>(null);
-  const maxUploadBytes = settings?.max_upload_bytes ?? 50 * 1048576;
+  const maxUploadBytes = 50 * 1048576;
   const slotOptions = useMemo(() => uniqueSlotsForTargets(assemblyTargets), [assemblyTargets]);
   const [file, setFile] = useState<File | null>(null);
   const [label, setLabel] = useState("");

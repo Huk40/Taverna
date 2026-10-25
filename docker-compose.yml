@@ -1,12 +1,18 @@
 services:
+  mailpit:
+    image: axllent/mailpit:v1.27.4
+    ports:
+      - "127.0.0.1:8025:8025"
+    environment:
+      MP_MAX_MESSAGES: "200"
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_DB: taverna
       POSTGRES_USER: taverna
-      POSTGRES_PASSWORD: taverna
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-taverna}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -20,33 +26,73 @@ services:
       context: ./backend
     environment:
       PORT: "8080"
-      DATABASE_URL: postgres://taverna:taverna@postgres:5432/taverna?sslmode=disable
+      DATABASE_URL: postgres://taverna:${POSTGRES_PASSWORD:-taverna}@postgres:5432/taverna?sslmode=disable
       MIGRATIONS_DIR: /app/migrations
-      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      TRUSTED_PROXY_CIDRS: ${NETWORK_PREFIX:-172.30.24}.10/32
       MODEL_ASSET_DIR: /app/storage/model-assets
       EXPORT_ARTIFACT_DIR: /app/storage/export-artifacts
       MAX_MODEL_ASSET_BYTES: "52428800"
-      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:5173/}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_ALLOW_INSECURE: ${SMTP_ALLOW_INSECURE:-true}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@taverna.local}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     volumes:
       - model_asset_data:/app/storage/model-assets
       - export_artifact_data:/app/storage/export-artifacts
     depends_on:
       postgres:
         condition: service_healthy
+      mailpit:
+        condition: service_started
 
   frontend:
     build:
       context: ./frontend
-    environment:
-      VITE_API_URL: http://localhost:8080
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:80"
+    networks:
+      default:
+        ipv4_address: ${NETWORK_PREFIX:-172.30.24}.10
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+
+  seed:
+    image: node:22-alpine
+    profiles: ["tools"]
+    working_dir: /app
+    environment:
+      TEST_API_URL: http://backend:8080
+      TEST_ADMIN_EMAIL: ${TEST_ADMIN_EMAIL:-}
+      TEST_ADMIN_PASSWORD: ${TEST_ADMIN_PASSWORD:-}
+      PUBLISHED_MANIFEST_PATH: /tmp/published.json
+    volumes:
+      - ./scripts:/app/scripts:ro
+      - ./assets:/app/assets:ro
+    command: ["node", "scripts/publish-starter-characters.mjs"]
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:
   model_asset_data:
   export_artifact_data:
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${NETWORK_PREFIX:-172.30.24}.0/24

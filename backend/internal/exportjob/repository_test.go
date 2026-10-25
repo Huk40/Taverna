@@ -3,6 +3,8 @@ package exportjob
 import (
 	"encoding/json"
 	"testing"
+
+	"taverna/backend/internal/assembly"
 )
 
 func TestNormalizeExportDefaults(t *testing.T) {
@@ -62,20 +64,20 @@ func TestAllowedExportValues(t *testing.T) {
 		t.Fatal("invoice_pdf target should not be allowed")
 	}
 
-	for _, format := range []string{"stl", "glb", "3mf", "obj"} {
+	for _, format := range []string{"stl", "obj"} {
 		if !allowedFormat(format) {
 			t.Fatalf("format %q should be allowed", format)
 		}
 	}
-	if allowedFormat("fbx") {
+	if allowedFormat("glb") || allowedFormat("3mf") || allowedFormat("fbx") {
 		t.Fatal("fbx format should not be allowed")
 	}
 }
 
 func TestBuildFakeArtifactIncludesPrintReadiness(t *testing.T) {
-	raw, err := buildFakeArtifact("project-1", "stl_print", "stl", map[string]any{"placements": []any{}}, ArtifactResult{})
+	raw, err := buildArtifact("project-1", "stl_print", "stl", assembly.Manifest{}, ArtifactResult{})
 	if err != nil {
-		t.Fatalf("buildFakeArtifact() error = %v", err)
+		t.Fatalf("buildArtifact() error = %v", err)
 	}
 
 	var artifact map[string]any
@@ -95,20 +97,9 @@ func TestBuildFakeArtifactIncludesPrintReadiness(t *testing.T) {
 }
 
 func TestBuildFakeArtifactIncludesAssemblySummary(t *testing.T) {
-	manifest := map[string]any{
-		"schema_version": 1,
-		"placements": []map[string]any{
-			{
-				"slot":             "gear",
-				"attachment_point": "right_hand",
-				"asset": map[string]any{
-					"id": "asset-1",
-				},
-			},
-		},
-	}
+	manifest := assembly.Manifest{SchemaVersion: 1, Placements: []assembly.ResolvedPlacement{{Slot: "gear", AttachmentPoint: "right_hand", Asset: assembly.ModelAssetRef{ID: "asset-1"}}}}
 
-	raw, err := buildFakeArtifact("project-1", "glb_preview", "obj", manifest, ArtifactResult{
+	raw, err := buildArtifact("project-1", "glb_preview", "obj", manifest, ArtifactResult{
 		Kind:        "assembled_obj",
 		FileName:    "job-1.obj",
 		Format:      "obj",
@@ -117,7 +108,7 @@ func TestBuildFakeArtifactIncludesAssemblySummary(t *testing.T) {
 		URL:         "/api/exports/job-1/artifact",
 	})
 	if err != nil {
-		t.Fatalf("buildFakeArtifact() error = %v", err)
+		t.Fatalf("buildArtifact() error = %v", err)
 	}
 
 	var artifact map[string]any

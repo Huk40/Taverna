@@ -2,10 +2,12 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 )
 
 type Config struct {
+	TrustedProxyCIDRs  []string
 	Port               string
 	DatabaseURL        string
 	MigrationsDir      string
@@ -13,11 +15,19 @@ type Config struct {
 	ModelAssetDir      string
 	ExportArtifactDir  string
 	MaxModelAssetBytes int64
-	AdminToken         string
+	AuthCookieSecure   bool
+	SMTPAllowInsecure  bool
+	PublicAppURL       string
+	SMTPHost           string
+	SMTPPort           string
+	SMTPUsername       string
+	SMTPPassword       string
+	SMTPFrom           string
 }
 
 func Load() Config {
 	return Config{
+		TrustedProxyCIDRs:  splitCSV(getEnv("TRUSTED_PROXY_CIDRS", "")),
 		Port:               getEnv("PORT", "8080"),
 		DatabaseURL:        getEnv("DATABASE_URL", "postgres://taverna:taverna@localhost:5432/taverna?sslmode=disable"),
 		MigrationsDir:      getEnv("MIGRATIONS_DIR", "migrations"),
@@ -25,7 +35,14 @@ func Load() Config {
 		ModelAssetDir:      getEnv("MODEL_ASSET_DIR", "storage/model-assets"),
 		ExportArtifactDir:  getEnv("EXPORT_ARTIFACT_DIR", "storage/export-artifacts"),
 		MaxModelAssetBytes: getEnvInt64("MAX_MODEL_ASSET_BYTES", 50<<20),
-		AdminToken:         strings.TrimSpace(os.Getenv("ADMIN_TOKEN")),
+		AuthCookieSecure:   getEnvBool("AUTH_COOKIE_SECURE", false),
+		SMTPAllowInsecure:  getEnvBool("SMTP_ALLOW_INSECURE", false),
+		PublicAppURL:       getEnv("PUBLIC_APP_URL", "http://localhost:5173/"),
+		SMTPHost:           strings.TrimSpace(os.Getenv("SMTP_HOST")),
+		SMTPPort:           strings.TrimSpace(os.Getenv("SMTP_PORT")),
+		SMTPUsername:       strings.TrimSpace(os.Getenv("SMTP_USERNAME")),
+		SMTPPassword:       os.Getenv("SMTP_PASSWORD"),
+		SMTPFrom:           strings.TrimSpace(os.Getenv("SMTP_FROM")),
 	}
 }
 
@@ -55,15 +72,21 @@ func getEnvInt64(key string, fallback int64) int64 {
 		return fallback
 	}
 
-	var parsed int64
-	for _, char := range value {
-		if char < '0' || char > '9' {
-			return fallback
-		}
-		parsed = parsed*10 + int64(char-'0')
-	}
-	if parsed <= 0 {
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed <= 0 {
 		return fallback
 	}
 	return parsed
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	switch value {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }

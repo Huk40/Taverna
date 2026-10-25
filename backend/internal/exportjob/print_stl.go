@@ -3,10 +3,8 @@ package exportjob
 import (
 	"context"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"net/http"
 	"strconv"
@@ -14,6 +12,7 @@ import (
 
 	"taverna/backend/internal/assembly"
 	"taverna/backend/internal/catalog"
+	"taverna/backend/internal/httpx"
 )
 
 var ErrPrintGeometry = errors.New("invalid print geometry")
@@ -25,19 +24,10 @@ func (h *Handler) PrintSTL(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	defer r.Body.Close()
 	var payload struct {
 		Config catalog.CharacterConfig `json:"config"`
 	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Не удалось прочитать выбранную модель."})
-		return
-	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Ожидается одна конфигурация модели."})
+	if !httpx.Decode(w, r, &payload, 1<<20, false) {
 		return
 	}
 	if len(payload.Config.Assembly.Placements) == 0 {
@@ -113,7 +103,7 @@ func buildPrintSTL(ctx context.Context, manifest assembly.Manifest) ([]byte, err
 	customBase := false
 	for _, placement := range manifest.Placements {
 		before := len(triangles)
-		_, err := visitSTLPlacement(collect, placement)
+		_, err := visitSTLPlacementContext(ctx, collect, placement)
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()

@@ -2,6 +2,8 @@ package modelasset
 
 import (
 	"archive/zip"
+	"bytes"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -10,6 +12,12 @@ import (
 )
 
 func Read3MFTriangles(path string) ([]Triangle, error) {
+	return Read3MFTrianglesContext(context.Background(), path)
+}
+func Read3MFTrianglesContext(ctx context.Context, path string) ([]Triangle, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	reader, err := zip.OpenReader(path)
 	if err != nil {
 		return nil, fmt.Errorf("read 3MF archive: %w", err)
@@ -21,13 +29,20 @@ func Read3MFTriangles(path string) ([]Triangle, error) {
 		return nil, fmt.Errorf("3MF model file is missing")
 	}
 
+	if modelFile.UncompressedSize64 > uint64(maxGeometryBytes) {
+		return nil, fmt.Errorf("3MF decompressed model is too large")
+	}
 	source, err := modelFile.Open()
 	if err != nil {
 		return nil, fmt.Errorf("open 3MF model file: %w", err)
 	}
 	defer source.Close()
 
-	triangles, err := parse3MFModelTriangles(source)
+	raw, err := readBoundedGeometry(contextReader{ctx, source}, maxGeometryBytes)
+	if err != nil {
+		return nil, err
+	}
+	triangles, err := parse3MFModelTriangles(contextReader{ctx, bytes.NewReader(raw)})
 	if err != nil {
 		return nil, err
 	}
@@ -99,6 +114,9 @@ func parse3MFModelTriangles(source io.Reader) ([]Triangle, error) {
 				if err != nil {
 					return nil, err
 				}
+				if len(currentVertices) >= maxGeometryVertices {
+					return nil, fmt.Errorf("too many 3MF vertices")
+				}
 				currentVertices = append(currentVertices, vertex)
 			case "triangles":
 				inTriangles = true
@@ -109,6 +127,9 @@ func parse3MFModelTriangles(source io.Reader) ([]Triangle, error) {
 				triangle, err := parse3MFTriangle(element, currentVertices)
 				if err != nil {
 					return nil, err
+				}
+				if len(triangles) >= MaxGeometryTriangles {
+					return nil, fmt.Errorf("too many 3MF triangles")
 				}
 				triangles = append(triangles, triangle)
 			}
