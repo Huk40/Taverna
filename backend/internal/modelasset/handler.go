@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"taverna/backend/internal/catalog"
+	"taverna/backend/internal/database"
+	"taverna/backend/internal/httpx"
 )
 
 const defaultMaxUploadBytes int64 = 50 << 20
@@ -84,7 +86,7 @@ func (h *Handler) Item(w http.ResponseWriter, r *http.Request) {
 		h.file(w, r, id)
 		return
 	}
-	if strings.Contains(path, "/") {
+	if !httpx.UUID(path) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "model asset not found"})
 		return
 	}
@@ -111,12 +113,17 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	assets, err := h.repo.List(ctx, slot)
+	page, ok := httpx.Pagination(w, r)
+	if !ok {
+		return
+	}
+	assets, err := h.repo.List(ctx, slot, page)
 	if err != nil {
 		h.serverError(w, "list model assets", err)
 		return
 	}
 
+	httpx.NextPage(w, page, len(assets))
 	writeJSON(w, http.StatusOK, assets)
 }
 
@@ -134,16 +141,11 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request, id string) {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-
 	var payload struct {
 		Label          *string          `json:"label"`
 		AssemblyPoints *[]AssemblyPoint `json:"assembly_points"`
 	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid model asset update payload"})
+	if !httpx.Decode(w, r, &payload, 1<<20, false) {
 		return
 	}
 
@@ -285,7 +287,9 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "file size is outside allowed range"})
 		return
 	}
-	metadata := InspectGeometry(storagePath, format)
+	inspectCtx, inspectCancel := context.WithTimeout(r.Context(), 30*time.Second)
+	metadata := InspectGeometryContext(inspectCtx, storagePath, format)
+	inspectCancel()
 	if metadata.Status == "error" {
 		h.logger.Warn("model asset geometry inspection failed", "file_name", originalName, "format", format, "warnings", metadata.Warnings)
 	}
@@ -327,6 +331,10 @@ func (h *Handler) upload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) file(w http.ResponseWriter, r *http.Request, id string) {
+	if !httpx.UUID(id) {
+		httpx.Error(w, 404, "model asset not found")
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 		return
@@ -420,6 +428,9 @@ func validateUploadGeometry(format string, metadata GeometryMetadata) error {
 	}
 	if metadata.Bounds == nil {
 		return fmt.Errorf("file does not contain readable %s bounds", strings.ToUpper(format))
+	}
+	if metadata.TriangleCount > MaxGeometryTriangles || metadata.VertexCount > maxGeometryVertices {
+		return fmt.Errorf("geometry exceeds vertex or triangle limits")
 	}
 	if metadata.TriangleCount <= 0 {
 		return fmt.Errorf("file does not contain %s triangle faces", strings.ToUpper(format))
@@ -608,6 +619,10 @@ func randomUUIDLikeID() (string, error) {
 }
 
 func (h *Handler) handleRepositoryError(w http.ResponseWriter, operation string, err error) {
+	if database.IsReferenceConflict(err) {
+		httpx.Error(w, 409, "Модель или точка крепления используется сохранённым проектом")
+		return
+	}
 	if errors.Is(err, ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "model asset not found"})
 		return

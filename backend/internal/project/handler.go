@@ -9,8 +9,12 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"taverna/backend/internal/auth"
 	"taverna/backend/internal/catalog"
+	"taverna/backend/internal/database"
+	"taverna/backend/internal/httpx"
 	"taverna/backend/internal/modelasset"
 )
 
@@ -39,7 +43,7 @@ func (h *Handler) Collection(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Item(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/projects/")
 	id = strings.TrimSpace(id)
-	if id == "" || strings.Contains(id, "/") {
+	if !httpx.UUID(id) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 		return
 	}
@@ -57,6 +61,11 @@ func (h *Handler) Item(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
+	owner, ok := auth.IdentityFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Требуется вход"})
+		return
+	}
 	payload, config, ok := h.decodePayload(w, r)
 	if !ok {
 		return
@@ -69,9 +78,9 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := h.repo.Create(ctx, payload)
+	project, err := h.repo.CreateForOwner(ctx, owner.ID, payload)
 	if err != nil {
-		h.serverError(w, "create project", err)
+		h.handleRepositoryError(w, "create project", err)
 		return
 	}
 
@@ -79,23 +88,38 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
+	owner, ok := auth.IdentityFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Требуется вход"})
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	projects, err := h.repo.List(ctx)
+	page, ok := httpx.Pagination(w, r)
+	if !ok {
+		return
+	}
+	projects, err := h.repo.ListForOwner(ctx, owner.ID, page)
 	if err != nil {
 		h.serverError(w, "list projects", err)
 		return
 	}
 
+	httpx.NextPage(w, page, len(projects))
 	writeJSON(w, http.StatusOK, projects)
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request, id string) {
+	owner, ok := auth.IdentityFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Требуется вход"})
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	project, err := h.repo.Get(ctx, id)
+	project, err := h.repo.GetForOwner(ctx, id, owner.ID)
 	if err != nil {
 		h.handleRepositoryError(w, "get project", err)
 		return
@@ -105,6 +129,11 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request, id string) {
+	owner, ok := auth.IdentityFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Требуется вход"})
+		return
+	}
 	payload, config, ok := h.decodePayload(w, r)
 	if !ok {
 		return
@@ -117,7 +146,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 
-	project, err := h.repo.Update(ctx, id, payload)
+	project, err := h.repo.UpdateForOwner(ctx, id, owner.ID, payload)
 	if err != nil {
 		h.handleRepositoryError(w, "update project", err)
 		return
@@ -127,10 +156,15 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request, id string) {
+	owner, ok := auth.IdentityFromContext(r.Context())
+	if !ok {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "Требуется вход"})
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	if err := h.repo.Delete(ctx, id); err != nil {
+	if err := h.repo.DeleteForOwner(ctx, id, owner.ID); err != nil {
 		h.handleRepositoryError(w, "delete project", err)
 		return
 	}
@@ -139,13 +173,12 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func (h *Handler) decodePayload(w http.ResponseWriter, r *http.Request) (ProjectPayload, catalog.CharacterConfig, bool) {
-	defer r.Body.Close()
-
 	var payload ProjectPayload
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid project payload"})
+	if !httpx.Decode(w, r, &payload, 1<<20, false) {
+		return ProjectPayload{}, catalog.CharacterConfig{}, false
+	}
+	if utf8.RuneCountInString(strings.TrimSpace(payload.Name)) > 120 {
+		httpx.Error(w, 400, "Название не должно превышать 120 символов")
 		return ProjectPayload{}, catalog.CharacterConfig{}, false
 	}
 
@@ -206,6 +239,10 @@ func (h *Handler) loadAssemblyAssets(ctx context.Context, config catalog.Charact
 		}
 		seen[assetID] = struct{}{}
 
+		if !httpx.UUID(assetID) {
+			missing = append(missing, assetID)
+			continue
+		}
 		asset, err := h.assets.Get(ctx, assetID)
 		if err != nil {
 			if errors.Is(err, modelasset.ErrNotFound) {
@@ -251,6 +288,10 @@ func assetHasAssemblyPoint(asset modelasset.ModelAsset, assetPointID string) boo
 }
 
 func (h *Handler) handleRepositoryError(w http.ResponseWriter, operation string, err error) {
+	if database.IsReferenceConflict(err) {
+		httpx.Error(w, 409, "Модель или точка крепления изменились. Обновите библиотеку.")
+		return
+	}
 	if errors.Is(err, ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "project not found"})
 		return

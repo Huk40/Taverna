@@ -12,6 +12,7 @@ import (
 
 	"taverna/backend/internal/app"
 	"taverna/backend/internal/assembly"
+	"taverna/backend/internal/auth"
 	"taverna/backend/internal/catalog"
 	"taverna/backend/internal/config"
 	"taverna/backend/internal/database"
@@ -49,20 +50,31 @@ func main() {
 	}
 	catalogHandler := catalog.NewHandler(catalogService)
 	projectRepo := project.NewRepository(pool)
+	authRepo := auth.NewRepository(pool)
+	authService := auth.NewService(authRepo, auth.Config{
+		Mailer: auth.Mailer{
+			Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
+			Password: cfg.SMTPPassword, From: cfg.SMTPFrom, AppURL: cfg.PublicAppURL, AllowInsecure: cfg.SMTPAllowInsecure,
+		},
+	})
+	authHandler := auth.NewHandler(authService, cfg.AuthCookieSecure)
 	modelAssetRepo := modelasset.NewRepository(pool)
 	modelAssetHandler := modelasset.NewHandler(modelAssetRepo, catalogService, cfg.ModelAssetDir, cfg.MaxModelAssetBytes, logger)
 	assemblyService := assembly.NewService(projectRepo, modelAssetRepo, catalogService)
 	assemblyHandler := assembly.NewHandler(assemblyService, logger)
 	projectHandler := project.NewHandler(projectRepo, catalogService, modelAssetRepo, logger)
 	artifactBuilder := exportjob.NewArtifactBuilder(cfg.ExportArtifactDir)
-	exportRepo := exportjob.NewRepository(pool, artifactBuilder)
-	exportHandler := exportjob.NewHandler(exportRepo, assemblyService, cfg.ExportArtifactDir, logger)
-	router := app.NewRouter(projectHandler, catalogHandler, exportHandler, modelAssetHandler, assemblyHandler, pool, cfg.CORSAllowedOrigins, app.AdminAccess{Token: cfg.AdminToken, MaxUploadBytes: cfg.MaxModelAssetBytes})
+	exportRepo := exportjob.NewRepository(pool)
+	exportHandler := exportjob.NewHandler(exportRepo, exportjob.NewService(exportRepo, artifactBuilder), assemblyService, cfg.ExportArtifactDir, logger)
+	router := app.NewRouter(projectHandler, catalogHandler, exportHandler, modelAssetHandler, assemblyHandler, authHandler, pool, cfg.CORSAllowedOrigins)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           router,
+		Handler:           app.RequestLogging(logger, app.TrustedProxy(cfg.TrustedProxyCIDRs, router)),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      90 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	go func() {

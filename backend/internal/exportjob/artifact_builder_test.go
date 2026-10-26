@@ -3,6 +3,7 @@ package exportjob
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
@@ -23,7 +24,7 @@ func TestArtifactBuilderAssemblesOBJPlacement(t *testing.T) {
 	}
 
 	builder := NewArtifactBuilder(t.TempDir())
-	result, err := builder.Build("job-1", assembly.Manifest{
+	result, err := builder.Build(context.Background(), "job-1", assembly.Manifest{
 		ProjectID: "project-1",
 		Placements: []assembly.ResolvedPlacement{{
 			ID: "placement-1",
@@ -73,7 +74,7 @@ func TestArtifactBuilderAssemblesSTLFromOBJPlacement(t *testing.T) {
 	}
 
 	builder := NewArtifactBuilder(t.TempDir())
-	result, err := builder.Build("job-1", assembly.Manifest{
+	result, err := builder.Build(context.Background(), "job-1", assembly.Manifest{
 		ProjectID: "project-1",
 		Placements: []assembly.ResolvedPlacement{{
 			ID: "placement-1",
@@ -145,7 +146,7 @@ endsolid blade
 	}
 
 	builder := NewArtifactBuilder(t.TempDir())
-	result, err := builder.Build("job-1", assembly.Manifest{
+	result, err := builder.Build(context.Background(), "job-1", assembly.Manifest{
 		ProjectID: "project-1",
 		Placements: []assembly.ResolvedPlacement{{
 			ID: "placement-1",
@@ -195,7 +196,7 @@ func TestArtifactBuilderAssemblesBinarySTLPlacement(t *testing.T) {
 	})
 
 	builder := NewArtifactBuilder(t.TempDir())
-	result, err := builder.Build("job-1", assembly.Manifest{
+	result, err := builder.Build(context.Background(), "job-1", assembly.Manifest{
 		ProjectID: "project-1",
 		Placements: []assembly.ResolvedPlacement{{
 			ID: "placement-1",
@@ -243,7 +244,7 @@ func TestArtifactBuilderAssemblesSTLFromGLBPlacement(t *testing.T) {
 	})
 
 	builder := NewArtifactBuilder(t.TempDir())
-	result, err := builder.Build("job-1", assembly.Manifest{
+	result, err := builder.Build(context.Background(), "job-1", assembly.Manifest{
 		ProjectID: "project-1",
 		Placements: []assembly.ResolvedPlacement{{
 			ID: "placement-1",
@@ -290,7 +291,7 @@ func TestArtifactBuilderAssemblesSTLFromGLTFPlacement(t *testing.T) {
 	writeArtifactGLTF(t, sourcePath)
 
 	builder := NewArtifactBuilder(t.TempDir())
-	result, err := builder.Build("job-1", assembly.Manifest{
+	result, err := builder.Build(context.Background(), "job-1", assembly.Manifest{
 		ProjectID: "project-1",
 		Placements: []assembly.ResolvedPlacement{{
 			ID: "placement-1",
@@ -337,7 +338,7 @@ func TestArtifactBuilderAssemblesSTLFrom3MFPlacement(t *testing.T) {
 	writeArtifact3MF(t, sourcePath)
 
 	builder := NewArtifactBuilder(t.TempDir())
-	result, err := builder.Build("job-1", assembly.Manifest{
+	result, err := builder.Build(context.Background(), "job-1", assembly.Manifest{
 		ProjectID: "project-1",
 		Placements: []assembly.ResolvedPlacement{{
 			ID: "placement-1",
@@ -378,26 +379,16 @@ func TestArtifactBuilderAssemblesSTLFrom3MFPlacement(t *testing.T) {
 	}
 }
 
-func TestArtifactBuilderSkipsNonOBJAssets(t *testing.T) {
-	builder := NewArtifactBuilder(t.TempDir())
-	result, err := builder.Build("job-1", assembly.Manifest{
-		ProjectID: "project-1",
-		Placements: []assembly.ResolvedPlacement{{
-			ID: "placement-1",
-			Asset: assembly.ModelAssetRef{
-				ID:     "asset-1",
-				Format: modelasset.FormatGLB,
-			},
-		}},
-	}, "obj")
-	if err != nil {
-		t.Fatalf("Build() error = %v", err)
+func TestArtifactBuilderRejectsPartialExport(t *testing.T) {
+	dir := t.TempDir()
+	builder := NewArtifactBuilder(dir)
+	_, err := builder.Build(context.Background(), "job-1", assembly.Manifest{Placements: []assembly.ResolvedPlacement{{Asset: assembly.ModelAssetRef{ID: "bad", Format: modelasset.FormatGLB}}}}, "obj")
+	if err == nil {
+		t.Fatal("partial export succeeded")
 	}
-	if len(result.IncludedAssets) != 0 {
-		t.Fatalf("included assets = %v", result.IncludedAssets)
-	}
-	if len(result.SkippedAssets) != 1 || result.SkippedAssets[0] != "asset-1" {
-		t.Fatalf("skipped assets = %v", result.SkippedAssets)
+	files, _ := os.ReadDir(dir)
+	if len(files) != 0 {
+		t.Fatal("partial artifact was retained")
 	}
 }
 

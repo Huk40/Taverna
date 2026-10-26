@@ -104,7 +104,9 @@ func TestPrintSTLHTTPRejectsInvalidRequests(t *testing.T) {
 		{http.MethodPost, `{"config":{}} {"extra":true}`, 400},
 	} {
 		recorder := httptest.NewRecorder()
-		handler.PrintSTL(recorder, httptest.NewRequest(tc.method, "/api/exports/stl", strings.NewReader(tc.body)))
+		request := httptest.NewRequest(tc.method, "/api/exports/stl", strings.NewReader(tc.body))
+		request.Header.Set("Content-Type", "application/json")
+		handler.PrintSTL(recorder, request)
 		if recorder.Code != tc.status || recorder.Header().Get("Content-Disposition") != "" {
 			t.Fatalf("unexpected response: %d %s", recorder.Code, recorder.Body.String())
 		}

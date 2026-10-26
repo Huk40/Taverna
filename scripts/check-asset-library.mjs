@@ -2,24 +2,21 @@
 // Only the test's own generated asset and project are deleted.
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { adminSession } from "./admin-session.mjs";
 
 const origin = process.env.TEST_API_URL ?? "http://localhost:8080";
-const token = process.env.ADMIN_TOKEN;
-assert.ok(token?.length >= 32, "Set ADMIN_TOKEN for the running local backend");
-const auth = { Authorization: `Bearer ${token}` };
+const auth = await adminSession(origin);
 let assetID;
 let projectID;
 async function call(path, options, expected = 200) {
-  const response = await fetch(origin + path, options);
+  const response = await fetch(origin + path, { ...options, headers: { "X-Taverna-Request": "1", ...options?.headers } });
   assert.equal(response.status, expected, `${options?.method ?? "GET"} ${path}: ${await response.clone().text()}`);
   return response.status === 204 ? null : response.json();
 }
 const json = (value) => ({ "Content-Type": "application/json", ...value });
 try {
-  const settings = await call("/api/admin/session");
-  assert.equal(settings.configured, true);
-  await call("/api/admin/session", { method: "POST" }, 401);
-  await call("/api/admin/session", { method: "POST", headers: auth });
+  await call("/api/auth/me", {}, 401);
+  assert.equal((await call("/api/auth/me", { headers: auth })).user.role, "admin");
   const file = await readFile(new URL("../tests/fixtures/library-sword.obj", import.meta.url));
   const data = new FormData();
   data.append("file", new Blob([file]), "library-sword.obj");
@@ -50,13 +47,14 @@ try {
   const manifest = await call("/api/assembly/preview", { method: "POST", headers: json(), body: JSON.stringify({ config }) });
   assert.equal(manifest.placements[0].asset.id, assetID);
   assert.ok(manifest.placements[0].world_bounds);
-  const project = await call("/api/projects", { method: "POST", headers: json(), body: JSON.stringify({ name: "Asset library integration check", config }) }, 201);
+  const project = await call("/api/projects", { method: "POST", headers: json(auth), body: JSON.stringify({ name: "Asset library integration check", config }) }, 201);
   projectID = project.id;
-  assert.equal((await call(`/api/projects/${projectID}`)).config.assembly.placements[0].asset_id, assetID);
+  assert.equal((await call(`/api/projects/${projectID}`, { headers: auth })).config.assembly.placements[0].asset_id, assetID);
   await call(`/api/model-assets/${assetID}`, { method: "DELETE", headers: auth }, 409);
   await call(`/api/model-assets/${assetID}`, { method: "PUT", headers: json(auth), body: JSON.stringify({ assembly_points: [{ ...asset.assembly_points[0], id: "renamed-anchor" }] }) }, 409);
   console.log("PASS: admin access, upload, public library/file, category filters, update, assembly, save/reopen and reference protection");
 } finally {
-  if (projectID) await call(`/api/projects/${projectID}`, { method: "DELETE" }, 204);
+  if (projectID) await call(`/api/projects/${projectID}`, { method: "DELETE", headers: auth }, 204);
   if (assetID) await call(`/api/model-assets/${assetID}`, { method: "DELETE", headers: auth }, 204);
+  await call("/api/auth/logout", { method: "POST", headers: auth }, 204);
 }

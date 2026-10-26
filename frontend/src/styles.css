@@ -137,6 +137,29 @@ p {
 .minimal-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 4px 2px; }
 .minimal-brand { font-size: 1.35rem; letter-spacing: -0.03em; }
 .stl-controls { display: flex; align-items: center; gap: 16px; }
+.account-button { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; max-width: 190px; border: 1px solid var(--line); border-radius: 7px; color: #f4f7fb; background: transparent; padding: 0 10px; font-size: 0.84rem; font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-button:hover, .account-button:focus-visible { border-color: var(--accent); color: var(--accent); }
+.account-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 18px; background: rgba(5, 7, 10, 0.66); }
+.account-dialog { color: var(--text-muted); width: min(calc(100% - 32px), 430px); max-height: calc(100dvh - 36px); overflow: auto; padding: 32px 24px 24px; border: 1px solid var(--line-strong); border-radius: 10px; background: #191d23; box-shadow: 0 20px 70px rgba(0, 0, 0, 0.42); }
+.account-dialog::backdrop { background: rgba(5,7,10,0.66); }
+.account-status { margin: 0 !important; font-size: 0.85rem; }
+.delete-confirm { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; padding-top: 8px; font-size: 0.8rem; }
+.account-close { position: absolute; top: 10px; right: 10px; display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 6px; color: var(--text-muted); background: transparent; }
+.account-close:hover { color: #f4f7fb; background: var(--panel-soft); }
+.account-content, .auth-form { display: grid; gap: 12px; }
+.account-content h2 { margin: 0; font-size: 1.28rem; }
+.account-content h3 { margin: 10px 0 0; font-size: 0.9rem; }
+.account-content > p { color: var(--text-muted); margin: -7px 0 0; }
+.account-note { padding: 9px 10px; border: 1px solid rgba(242, 184, 75, 0.36); border-radius: 7px; color: var(--accent-strong) !important; background: rgba(242, 184, 75, 0.08); font-size: 0.8rem; line-height: 1.4; }
+.account-admin-link { display: inline-flex; align-items: center; gap: 7px; color: var(--success); font-size: 0.85rem; font-weight: 800; text-decoration: none; }
+.account-projects { display: grid; gap: 7px; max-height: 245px; overflow: auto; }
+.account-project { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; padding: 7px; border: 1px solid var(--line); border-radius: 7px; background: #141920; }
+.account-project.active { border-color: var(--accent); }
+.account-project button { min-width: 0; border: 0; color: #f4f7fb; background: transparent; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-project button:last-child { color: var(--danger); font-size: 0.75rem; font-weight: 700; }
+.auth-links { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; }
+.auth-links button { border: 0; color: var(--accent); background: transparent; padding: 2px 0; font-size: 0.82rem; }
+.auth-error { margin: 0; color: var(--danger); font-size: 0.82rem; }
 .print-height { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 0.85rem; }
 .print-height input { width: 68px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; color: inherit; background: var(--panel); }
 .minimal-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 290px; min-height: 0; gap: 14px; }
@@ -155,7 +178,8 @@ p {
 @media (max-width: 760px) {
   .minimal-editor { height: 100dvh; min-height: 0; overflow: hidden; gap: 10px; }
   .minimal-topbar { flex-wrap: wrap; gap: 8px; }
-  .stl-controls { gap: 10px; }
+  .stl-controls { gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .account-button { max-width: 140px; }
   .minimal-editor .topbar-button { width: auto; }
   .minimal-workspace { grid-template-columns: 1fr; grid-template-rows: minmax(180px, 1fr) auto; gap: 10px; }
   .minimal-workspace .preview-stage { min-height: 0; }

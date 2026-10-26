@@ -103,6 +103,16 @@ export type Project = {
   updated_at: string;
 };
 
+export type User = {
+  id: string;
+  email: string;
+  display_name: string;
+  role: "user" | "admin";
+  email_verified: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type ExportJob = {
   id: string;
   project_id: string;

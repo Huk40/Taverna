@@ -63,7 +63,7 @@ const fallbackConfig: CharacterConfig = {
 const configSlots: SlotID[] = ["species", "body", "head", "clothing", "gear", "pose", "stage", "base", "product_target"];
 
 export default function App() {
-  const admin = useAdminAccess();
+  const account = useAdminAccess();
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [projectName, setProjectName] = useState("Taverna hero");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -85,6 +85,10 @@ export default function App() {
   const [activeCategory, setActiveCategory] = useState<EditorCategory>(() => window.location.pathname.replace(/\/$/, "") === "/admin" ? "admin" : "body");
   const assemblyPreviewSequenceRef = useRef(0);
   const [status, setStatus] = useState("Готово");
+  const [draftOwner, setDraftOwner] = useState<string | null>(null);
+  const previousOwner = useRef<string | null>(null);
+  const currentUserID = useRef(account.user?.id);
+  currentUserID.current = account.user?.id;
 
   const partsBySlot = useMemo(() => groupPartsBySlot(catalog?.parts ?? []), [catalog]);
   const editorSlots = useMemo<SlotID[]>(() => [
@@ -99,9 +103,48 @@ export default function App() {
   const shareURL = useMemo(() => shareURLForProject(selectedProjectId), [selectedProjectId]);
   const printReadiness = useMemo(() => (catalog ? printReadinessForConfig(config, catalog) : null), [catalog, config]);
 
+  useEffect(() => { void boot(); }, []);
+
   useEffect(() => {
-    void boot();
-  }, []);
+    if (account.loading || !catalog) return;
+    let cancelled = false;
+    const owner = account.user?.id ?? "guest";
+    const changed = previousOwner.current !== null && previousOwner.current !== owner;
+    if (changed) clearProjectURLParam();
+    setProjects([]); setSelectedProjectId(null); setExportJobs([]); setLastExport(null);
+    setDraftOwner(null);
+    let restored = newCharacterConfig(catalog, modelAssets);
+    let name = "Новая модель";
+    try {
+      const stored = localStorage.getItem(`taverna.draft.${owner}`) ??
+        (previousOwner.current === "guest" && owner !== "guest" ? localStorage.getItem("taverna.draft.guest") : null);
+      if (stored) {
+        const draft = JSON.parse(stored);
+        restored = normalizeConfig(draft.config, catalog);
+        restored.assembly.placements = restored.assembly.placements.filter(p => modelAssets.some(a => a.id === p.asset_id));
+        name = typeof draft.name === "string" ? draft.name : name;
+      }
+    } catch { /* Browser storage may be unavailable or contain an old draft. */ }
+    setConfig(restored); setProjectName(name); setDraftOwner(owner);
+    previousOwner.current = owner;
+    if (account.user) {
+      void listProjects().then(p => { if (!cancelled) setProjects(p); })
+        .catch(error => { if (!cancelled) setStatus(`Ошибка загрузки моделей: ${getErrorMessage(error)}`); });
+      const id = projectIDFromURL();
+      if (id) void getProject(id).then(p => {
+        if (cancelled) return;
+        setSelectedProjectId(p.id); setProjectName(p.name); setConfig(normalizeConfig(p.config, catalog)); setStatus("Модель открыта");
+      }).catch(error => { if (!cancelled) { clearProjectURLParam(); setStatus(`Модель недоступна: ${getErrorMessage(error)}`); } });
+    }
+    return () => { cancelled = true; };
+  }, [account.loading, account.user?.id, catalog]);
+
+  useEffect(() => {
+    const owner = account.user?.id ?? "guest";
+    if (!catalog || draftOwner !== owner || account.loading) return;
+    try { localStorage.setItem(`taverna.draft.${owner}`, JSON.stringify({name: projectName, config})); }
+    catch { /* Saving to the account remains available when local storage is full. */ }
+  }, [catalog, config, projectName, draftOwner, account.user?.id, account.loading]);
 
   useEffect(() => {
     if (!downloadBusyRef.current) { setDownloadMessage(""); setDownloadError(""); }
@@ -141,34 +184,15 @@ export default function App() {
   async function boot() {
     setIsLoading(true);
     try {
-      const [loadedCatalog, loadedProjects, loadedAssets, loadedTargets] = await Promise.all([
+      const [loadedCatalog, loadedAssets, loadedTargets] = await Promise.all([
         getCatalog(),
-        listProjects(),
         listModelAssets(),
         getAssemblyPointTargets(),
       ]);
       setCatalog(loadedCatalog);
       setConfig(newCharacterConfig(loadedCatalog, loadedAssets));
-      setProjects(loadedProjects);
       setModelAssets(loadedAssets);
       setAssemblyTargets(loadedTargets);
-      const sharedProjectID = projectIDFromURL();
-      if (sharedProjectID) {
-        try {
-          const sharedProject = await getProject(sharedProjectID);
-          setSelectedProjectId(sharedProject.id);
-          setProjectName(sharedProject.name);
-          setConfig(normalizeConfig(sharedProject.config, loadedCatalog));
-          await syncExportJobs(sharedProject.id);
-          await syncAssemblyManifest(sharedProject.id);
-          setStatus("Проект открыт по ссылке");
-          return;
-        } catch (error) {
-          clearProjectURLParam();
-          setStatus(`Ссылка на проект недоступна: ${getErrorMessage(error)}`);
-          return;
-        }
-      }
       setStatus("Выберите тело и голову");
     } catch (error) {
       setStatus(`Ошибка загрузки: ${getErrorMessage(error)}`);
@@ -178,9 +202,15 @@ export default function App() {
   }
 
   async function refreshProjects() {
+    if (!account.user) {
+      setProjects([]);
+      return;
+    }
+    const userID = account.user.id;
     setIsLoading(true);
     try {
       const loaded = await listProjects();
+      if (currentUserID.current !== userID) return;
       setProjects(loaded);
       setStatus(`Загружено проектов: ${loaded.length}`);
     } catch (error) {
@@ -209,12 +239,12 @@ export default function App() {
         slot,
         attachmentPoint,
         assemblyPoints,
-      }, admin.token);
+      });
       setModelAssets((current) => [asset, ...current.filter((item) => item.id !== asset.id)]);
       setStatus(`Модель добавлена в общую библиотеку: ${asset.label}`);
     } catch (error) {
       setStatus(`Ошибка загрузки 3D-модели: ${getErrorMessage(error)}`);
-      if (error instanceof APIError && error.status === 401) admin.logout();
+      if (error instanceof APIError && error.status === 401) void account.refresh();
       throw error;
     } finally {
       setIsUploadingAsset(false);
@@ -223,7 +253,7 @@ export default function App() {
 
   async function removeModelAsset(id: string) {
     try {
-      await deleteModelAsset(id, admin.token);
+      await deleteModelAsset(id);
       setModelAssets((current) => current.filter((asset) => asset.id !== id));
       setConfig((current) => ({
         ...current,
@@ -235,7 +265,7 @@ export default function App() {
       setStatus("3D-модель удалена");
     } catch (error) {
       setStatus(`Ошибка удаления 3D-модели: ${getErrorMessage(error)}`);
-      if (error instanceof APIError && error.status === 401) admin.logout();
+      if (error instanceof APIError && error.status === 401) void account.refresh();
       throw error;
     }
   }
@@ -243,40 +273,44 @@ export default function App() {
   async function saveModelAsset(id: string, label: string, assemblyPoints: ModelAssetAssemblyPoint[]) {
     setIsUpdatingAsset(true);
     try {
-      const asset = await updateModelAsset(id, { label, assemblyPoints }, admin.token);
+      const asset = await updateModelAsset(id, { label, assemblyPoints });
       setModelAssets((current) => current.map((item) => (item.id === asset.id ? asset : item)));
       setConfig((current) => reconcilePlacementsForUpdatedAsset(current, asset));
       setAssemblyManifest(null);
       setStatus(`3D-модель обновлена: ${asset.label}`);
     } catch (error) {
       setStatus(`Ошибка обновления 3D-модели: ${getErrorMessage(error)}`);
-      if (error instanceof APIError && error.status === 401) admin.logout();
+      if (error instanceof APIError && error.status === 401) void account.refresh();
       throw error;
     } finally {
       setIsUpdatingAsset(false);
     }
   }
 
-  async function saveProject(event?: FormEvent) {
+  async function saveProject(event?: FormEvent, asCopy = false) {
     event?.preventDefault();
+    if (!account.user) {
+      setStatus("Войдите, чтобы сохранить модель");
+      return;
+    }
     if (!catalog) {
       setStatus("Каталог еще загружается");
       return;
     }
 
     setIsSaving(true);
+    const userID = account.user.id;
     try {
       const payload = { name: projectName, config: normalizeConfig(config, catalog) };
-      const saved = selectedProjectId
+      const saved = selectedProjectId && !asCopy
         ? await updateProject(selectedProjectId, payload)
         : await createProject(payload);
+      if (currentUserID.current !== userID) return;
       setSelectedProjectId(saved.id);
       setProjectURLParam(saved.id);
       setProjectName(saved.name);
       setConfig(normalizeConfig(saved.config, catalog));
       await refreshProjects();
-      await syncExportJobs(saved.id);
-      await syncAssemblyManifest(saved.id);
       setStatus("Проект сохранен");
     } catch (error) {
       setStatus(`Ошибка сохранения: ${getErrorMessage(error)}`);
@@ -286,20 +320,24 @@ export default function App() {
   }
 
   async function openProject(id: string) {
+    if (!account.user) {
+      setStatus("Войдите, чтобы открыть сохранённую модель");
+      return;
+    }
     if (!catalog) {
       setStatus("Каталог еще загружается");
       return;
     }
 
     setIsLoading(true);
+    const userID = account.user.id;
     try {
       const project = await getProject(id);
+      if (currentUserID.current !== userID) return;
       setSelectedProjectId(project.id);
       setProjectURLParam(project.id);
       setProjectName(project.name);
       setConfig(normalizeConfig(project.config, catalog));
-      await syncExportJobs(project.id);
-      await syncAssemblyManifest(project.id);
       setStatus("Проект открыт");
     } catch (error) {
       setStatus(`Ошибка открытия: ${getErrorMessage(error)}`);
@@ -309,9 +347,15 @@ export default function App() {
   }
 
   async function removeProject(id: string) {
+    if (!account.user) {
+      setStatus("Войдите, чтобы удалить сохранённую модель");
+      return;
+    }
     setIsLoading(true);
+    const userID = account.user.id;
     try {
       await deleteProject(id);
+      if (currentUserID.current !== userID) return;
       if (selectedProjectId === id) {
         setSelectedProjectId(null);
         setProjectName("Taverna hero");
@@ -530,6 +574,12 @@ export default function App() {
       onRemoveProject={(id) => void removeProject(id)}
       onRemoveAssemblyPlacement={removeAssemblyPlacement}
       onSave={() => void saveProject()}
+      onSaveCopy={() => void saveProject(undefined, true)}
+      onNew={() => {
+        setSelectedProjectId(null); setProjectName("Новая модель");
+        setConfig(catalog ? newCharacterConfig(catalog, modelAssets) : fallbackConfig);
+        clearProjectURLParam(); setStatus("Новая модель");
+      }}
       onScaleChange={updateScale}
       onSlotChange={updateSlot}
       onUpdateAssemblyPlacement={updateAssemblyPlacement}

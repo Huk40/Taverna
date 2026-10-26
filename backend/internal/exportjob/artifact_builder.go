@@ -2,7 +2,9 @@ package exportjob
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -25,7 +27,7 @@ type ArtifactResult struct {
 	Format         string   `json:"format"`
 	ContentType    string   `json:"content_type"`
 	SizeBytes      int64    `json:"size_bytes"`
-	StoragePath    string   `json:"storage_path"`
+	StoragePath    string   `json:"-"`
 	URL            string   `json:"url"`
 	IncludedAssets []string `json:"included_assets"`
 	SkippedAssets  []string `json:"skipped_assets"`
@@ -36,24 +38,24 @@ func NewArtifactBuilder(storageDir string) *ArtifactBuilder {
 	return &ArtifactBuilder{storageDir: storageDir}
 }
 
-func (b *ArtifactBuilder) Build(jobID string, manifest assembly.Manifest, format string) (ArtifactResult, error) {
+func (b *ArtifactBuilder) Build(ctx context.Context, jobID string, manifest assembly.Manifest, format string) (ArtifactResult, error) {
+	if err := ctx.Err(); err != nil {
+		return ArtifactResult{}, err
+	}
+	if len(manifest.Placements) == 0 {
+		return ArtifactResult{}, errors.New("assembly contains no assets")
+	}
 	switch format {
 	case "obj":
-		return b.buildOBJ(jobID, manifest)
+		return b.buildOBJ(ctx, jobID, manifest)
 	case "stl":
-		return b.buildSTL(jobID, manifest)
+		return b.buildSTL(ctx, jobID, manifest)
 	default:
-		return ArtifactResult{
-			Kind:        "manifest_only",
-			Format:      format,
-			ContentType: "application/json",
-			URL:         "",
-			Warnings:    []string{"mesh artifact generation currently supports OBJ and STL export only"},
-		}, nil
+		return ArtifactResult{}, fmt.Errorf("%w: unsupported format %q", ErrInvalidRequest, format)
 	}
 }
 
-func (b *ArtifactBuilder) buildOBJ(jobID string, manifest assembly.Manifest) (ArtifactResult, error) {
+func (b *ArtifactBuilder) buildOBJ(ctx context.Context, jobID string, manifest assembly.Manifest) (ArtifactResult, error) {
 	if err := os.MkdirAll(b.storageDir, 0o755); err != nil {
 		return ArtifactResult{}, fmt.Errorf("create export artifact storage: %w", err)
 	}
@@ -65,7 +67,14 @@ func (b *ArtifactBuilder) buildOBJ(jobID string, manifest assembly.Manifest) (Ar
 		return ArtifactResult{}, fmt.Errorf("create OBJ artifact: %w", err)
 	}
 
-	writer := bufio.NewWriter(file)
+	completed := false
+	defer func() {
+		_ = file.Close()
+		if !completed {
+			_ = os.Remove(storagePath)
+		}
+	}()
+	writer := bufio.NewWriter(contextWriter{ctx, file})
 	result := ArtifactResult{
 		Kind:           "assembled_obj",
 		FileName:       fileName,
@@ -86,19 +95,13 @@ func (b *ArtifactBuilder) buildOBJ(jobID string, manifest assembly.Manifest) (Ar
 
 	for _, placement := range manifest.Placements {
 		if placement.Asset.Format != modelasset.FormatOBJ {
-			result.SkippedAssets = append(result.SkippedAssets, placement.Asset.ID)
-			result.Warnings = append(result.Warnings, fmt.Sprintf("asset %s has format %s and was skipped by OBJ assembler", placement.Asset.ID, placement.Asset.Format))
-			continue
+			return ArtifactResult{}, fmt.Errorf("asset %s has unsupported OBJ format %s", placement.Asset.ID, placement.Asset.Format)
 		}
 		if strings.TrimSpace(placement.Asset.StoragePath) == "" {
-			result.SkippedAssets = append(result.SkippedAssets, placement.Asset.ID)
-			result.Warnings = append(result.Warnings, fmt.Sprintf("asset %s has no storage path", placement.Asset.ID))
-			continue
+			return ArtifactResult{}, fmt.Errorf("asset %s has no storage path", placement.Asset.ID)
 		}
 		if err := appendOBJPlacement(writer, &state, placement); err != nil {
-			result.SkippedAssets = append(result.SkippedAssets, placement.Asset.ID)
-			result.Warnings = append(result.Warnings, err.Error())
-			continue
+			return ArtifactResult{}, fmt.Errorf("asset %s: %w", placement.Asset.ID, err)
 		}
 		result.IncludedAssets = append(result.IncludedAssets, placement.Asset.ID)
 	}
@@ -120,11 +123,12 @@ func (b *ArtifactBuilder) buildOBJ(jobID string, manifest assembly.Manifest) (Ar
 		return ArtifactResult{}, fmt.Errorf("stat OBJ artifact: %w", err)
 	}
 	result.SizeBytes = info.Size()
+	completed = true
 
 	return result, nil
 }
 
-func (b *ArtifactBuilder) buildSTL(jobID string, manifest assembly.Manifest) (ArtifactResult, error) {
+func (b *ArtifactBuilder) buildSTL(ctx context.Context, jobID string, manifest assembly.Manifest) (ArtifactResult, error) {
 	if err := os.MkdirAll(b.storageDir, 0o755); err != nil {
 		return ArtifactResult{}, fmt.Errorf("create export artifact storage: %w", err)
 	}
@@ -136,7 +140,14 @@ func (b *ArtifactBuilder) buildSTL(jobID string, manifest assembly.Manifest) (Ar
 		return ArtifactResult{}, fmt.Errorf("create STL artifact: %w", err)
 	}
 
-	writer := bufio.NewWriter(file)
+	completed := false
+	defer func() {
+		_ = file.Close()
+		if !completed {
+			_ = os.Remove(storagePath)
+		}
+	}()
+	writer := bufio.NewWriter(contextWriter{ctx, file})
 	result := ArtifactResult{
 		Kind:           "assembled_stl",
 		FileName:       fileName,
@@ -148,6 +159,7 @@ func (b *ArtifactBuilder) buildSTL(jobID string, manifest assembly.Manifest) (Ar
 		SkippedAssets:  []string{},
 		Warnings:       []string{},
 	}
+	totalTriangles := 0
 	solidName := sanitizeOBJName("taverna_" + jobID)
 
 	if _, err := fmt.Fprintf(writer, "solid %s\n", solidName); err != nil {
@@ -157,25 +169,23 @@ func (b *ArtifactBuilder) buildSTL(jobID string, manifest assembly.Manifest) (Ar
 
 	for _, placement := range manifest.Placements {
 		if placement.Asset.Format != modelasset.FormatOBJ && placement.Asset.Format != modelasset.FormatSTL && placement.Asset.Format != modelasset.FormatGLB && placement.Asset.Format != modelasset.FormatGLTF && placement.Asset.Format != modelasset.Format3MF {
-			result.SkippedAssets = append(result.SkippedAssets, placement.Asset.ID)
-			result.Warnings = append(result.Warnings, fmt.Sprintf("asset %s has format %s and was skipped by STL assembler", placement.Asset.ID, placement.Asset.Format))
-			continue
+			return ArtifactResult{}, fmt.Errorf("asset %s has unsupported STL format %s", placement.Asset.ID, placement.Asset.Format)
 		}
 		if strings.TrimSpace(placement.Asset.StoragePath) == "" {
-			result.SkippedAssets = append(result.SkippedAssets, placement.Asset.ID)
-			result.Warnings = append(result.Warnings, fmt.Sprintf("asset %s has no storage path", placement.Asset.ID))
-			continue
+			return ArtifactResult{}, fmt.Errorf("asset %s has no storage path", placement.Asset.ID)
 		}
-		triangleCount, err := appendSTLPlacement(writer, placement)
+		triangleCount, err := visitSTLPlacementContext(ctx, func(a, b, c [3]float64) error {
+			totalTriangles++
+			if totalTriangles > 1_000_000 {
+				return errors.New("too many export triangles")
+			}
+			return writeSTLFacet(writer, a, b, c)
+		}, placement)
 		if err != nil {
-			result.SkippedAssets = append(result.SkippedAssets, placement.Asset.ID)
-			result.Warnings = append(result.Warnings, err.Error())
-			continue
+			return ArtifactResult{}, fmt.Errorf("asset %s: %w", placement.Asset.ID, err)
 		}
 		if triangleCount == 0 {
-			result.SkippedAssets = append(result.SkippedAssets, placement.Asset.ID)
-			result.Warnings = append(result.Warnings, fmt.Sprintf("asset %s did not contain triangles", placement.Asset.ID))
-			continue
+			return ArtifactResult{}, fmt.Errorf("asset %s contains no triangles", placement.Asset.ID)
 		}
 		result.IncludedAssets = append(result.IncludedAssets, placement.Asset.ID)
 	}
@@ -201,6 +211,7 @@ func (b *ArtifactBuilder) buildSTL(jobID string, manifest assembly.Manifest) (Ar
 		return ArtifactResult{}, fmt.Errorf("stat STL artifact: %w", err)
 	}
 	result.SizeBytes = info.Size()
+	completed = true
 
 	return result, nil
 }
@@ -221,6 +232,7 @@ func appendOBJPlacement(writer *bufio.Writer, state *objWriteState, placement as
 	localVertices := 0
 	localTextures := 0
 	localNormals := 0
+	localFaces := 0
 
 	if _, err := fmt.Fprintf(writer, "o %s_%s\n", sanitizeOBJName(placement.ID), sanitizeOBJName(placement.Asset.ID)); err != nil {
 		return err
@@ -265,6 +277,10 @@ func appendOBJPlacement(writer *bufio.Writer, state *objWriteState, placement as
 			}
 			localNormals++
 		case "f":
+			if len(fields) < 4 {
+				return fmt.Errorf("asset %s contains an incomplete face", placement.Asset.ID)
+			}
+			localFaces++
 			face := make([]string, 0, len(fields)-1)
 			for _, token := range fields[1:] {
 				shifted, err := shiftFaceToken(token, state)
@@ -287,6 +303,9 @@ func appendOBJPlacement(writer *bufio.Writer, state *objWriteState, placement as
 		return fmt.Errorf("scan asset %s OBJ: %w", placement.Asset.ID, err)
 	}
 
+	if localVertices == 0 || localFaces == 0 {
+		return fmt.Errorf("asset %s contains no OBJ mesh", placement.Asset.ID)
+	}
 	state.vertexOffset += localVertices
 	state.textureOffset += localTextures
 	state.normalOffset += localNormals

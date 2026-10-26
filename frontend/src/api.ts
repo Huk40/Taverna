@@ -10,9 +10,10 @@ import type {
   Part,
   Project,
   Slot,
+  User,
 } from "./types";
 
-const API_URL = (import.meta.env.VITE_API_URL ?? "http://localhost:8080").replace(/\/$/, "");
+const API_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
 
 export class APIError extends Error {
   readonly status: number;
@@ -31,20 +32,19 @@ type ProjectPayload = {
   config: CharacterConfig;
 };
 
-async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const headers = options?.body instanceof FormData
-    ? options?.headers
-    : {
-        "Content-Type": "application/json",
-        ...options?.headers,
-      };
+async function request<T>(path: string, options?: RequestInit, pagination?: { next: number | null }): Promise<T> {
+  const headers = new Headers(options?.headers);
+  headers.set("X-Taverna-Request", "1");
+  if (!(options?.body instanceof FormData)) headers.set("Content-Type", "application/json");
 
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers,
+    credentials: "include",
   });
 
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith("/api/auth/")) window.dispatchEvent(new Event("auth-expired"));
     const text = await response.text();
     const payload = parseErrorPayload(text);
     const message = errorMessageFromPayload(payload) ?? (text.trim() || `Request failed with status ${response.status}`);
@@ -55,6 +55,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     return undefined as T;
   }
 
+  if (pagination) { const value = response.headers.get("X-Next-Offset"); pagination.next = value === null ? null : Number(value); }
   return response.json() as Promise<T>;
 }
 
@@ -77,9 +78,60 @@ function errorMessageFromPayload(payload: unknown): string | null {
   return typeof message === "string" && message.trim() ? message : null;
 }
 
-export function listProjects(): Promise<Project[]> {
-  return request<Project[]>("/api/projects");
+async function listAll<T>(path: string): Promise<T[]> {
+  const items: T[] = [];
+  let offset = 0;
+  for (;;) {
+    const page: { next: number | null } = { next: null };
+    items.push(...await request<T[]>(path + (path.includes("?") ? "&" : "?") + `limit=100&offset=${offset}`, undefined, page));
+    if (page.next === null) return items;
+    if (!Number.isSafeInteger(page.next) || page.next <= offset) throw new Error("Некорректная страница ответа сервера");
+    offset = page.next;
+  }
 }
+
+export function listProjects(): Promise<Project[]> {
+  return listAll<Project>("/api/projects");
+}
+
+export type AuthResponse = {
+  user: User;
+  email_delivery_configured?: boolean;
+};
+
+export function register(payload: { email: string; displayName: string; password: string }): Promise<AuthResponse> {
+  return request<AuthResponse>("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email: payload.email, display_name: payload.displayName, password: payload.password }),
+  });
+}
+
+export function login(payload: { email: string; password: string }): Promise<AuthResponse> {
+  return request<AuthResponse>("/api/auth/login", { method: "POST", body: JSON.stringify(payload) });
+}
+
+export function logout(): Promise<void> {
+  return request<void>("/api/auth/logout", { method: "POST" });
+}
+
+export function getCurrentUser(): Promise<AuthResponse> {
+  return request<AuthResponse>("/api/auth/me");
+}
+
+export function requestPasswordReset(email: string): Promise<void> {
+  return request<void>("/api/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) });
+}
+
+export function verifyEmail(token: string): Promise<void> {
+  return request<void>("/api/auth/verify-email", { method: "POST", body: JSON.stringify({ token }) });
+}
+
+export function resetPassword(token: string, password: string): Promise<void> {
+  return request<void>("/api/auth/reset-password", { method: "POST", body: JSON.stringify({ token, password }) });
+}
+
+export const logoutAll = () => request<void>("/api/auth/logout-all", {method:"POST"});
+export const resendVerification = () => request<void>("/api/auth/resend-verification", {method:"POST"});
 
 export function getProject(id: string): Promise<Project> {
   return request<Project>(`/api/projects/${id}`);
@@ -101,6 +153,7 @@ export async function downloadSTL(config: CharacterConfig): Promise<Blob> {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "model/stl" },
     body: JSON.stringify({ config }),
+    credentials: "include",
   });
   if (!response.ok) {
     const payload = parseErrorPayload(await response.text());
@@ -158,7 +211,7 @@ export function createExport(projectId: string, target: string, format?: string)
 }
 
 export function listProjectExports(projectId: string): Promise<ExportJob[]> {
-  return request<ExportJob[]>(`/api/projects/${projectId}/exports`);
+  return listAll<ExportJob>(`/api/projects/${projectId}/exports`);
 }
 
 export function getExport(id: string): Promise<ExportJob> {
@@ -167,17 +220,7 @@ export function getExport(id: string): Promise<ExportJob> {
 
 export function listModelAssets(slot?: string): Promise<ModelAsset[]> {
   const query = slot ? `?slot=${encodeURIComponent(slot)}` : "";
-  return request<ModelAsset[]>(`/api/model-assets${query}`);
-}
-
-export type AdminSettings = { configured: boolean; max_upload_bytes: number };
-
-export function getAdminSettings(): Promise<AdminSettings> {
-  return request<AdminSettings>("/api/admin/session");
-}
-
-export function verifyAdminToken(token: string): Promise<{ authenticated: boolean }> {
-  return request("/api/admin/session", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+  return listAll<ModelAsset>(`/api/model-assets${query}`);
 }
 
 export function uploadModelAsset(payload: {
@@ -186,7 +229,7 @@ export function uploadModelAsset(payload: {
   slot: string;
   attachmentPoint: string;
   assemblyPoints?: ModelAssetAssemblyPoint[];
-}, adminToken: string): Promise<ModelAsset> {
+}): Promise<ModelAsset> {
   const formData = new FormData();
   formData.append("file", payload.file);
   formData.append("label", payload.label);
@@ -198,7 +241,6 @@ export function uploadModelAsset(payload: {
 
   return request<ModelAsset>("/api/model-assets", {
     method: "POST",
-    headers: { Authorization: `Bearer ${adminToken}` },
     body: formData,
   });
 }
@@ -206,10 +248,9 @@ export function uploadModelAsset(payload: {
 export function updateModelAsset(id: string, payload: {
   label: string;
   assemblyPoints: ModelAssetAssemblyPoint[];
-}, adminToken: string): Promise<ModelAsset> {
+}): Promise<ModelAsset> {
   return request<ModelAsset>(`/api/model-assets/${id}`, {
     method: "PUT",
-    headers: { Authorization: `Bearer ${adminToken}` },
     body: JSON.stringify({
       label: payload.label,
       assembly_points: payload.assemblyPoints,
@@ -217,10 +258,9 @@ export function updateModelAsset(id: string, payload: {
   });
 }
 
-export function deleteModelAsset(id: string, adminToken: string): Promise<void> {
+export function deleteModelAsset(id: string): Promise<void> {
   return request<void>(`/api/model-assets/${id}`, {
     method: "DELETE",
-    headers: { Authorization: `Bearer ${adminToken}` },
   });
 }
 

@@ -1,17 +1,23 @@
 package modelasset
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
-	"os"
 	"strings"
 )
 
 func ReadGLTFTriangles(path string) ([]Triangle, error) {
-	raw, err := os.ReadFile(path)
+	return ReadGLTFTrianglesContext(context.Background(), path)
+}
+func ReadGLTFTrianglesContext(ctx context.Context, path string) ([]Triangle, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	raw, err := readGeometryFile(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("read GLTF triangles: %w", err)
 	}
@@ -26,7 +32,7 @@ func ReadGLTFTriangles(path string) ([]Triangle, error) {
 		return nil, err
 	}
 
-	triangles, err := readBufferedDocumentTriangles(document, buffers, "GLTF")
+	triangles, err := readBufferedDocumentTriangles(ctx, document, buffers, "GLTF")
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +91,7 @@ func readEmbeddedGLTFBuffers(document glbDocument) ([][]byte, error) {
 	return buffers, nil
 }
 
-func readBufferedDocumentTriangles(document glbDocument, buffers [][]byte, source string) ([]Triangle, error) {
+func readBufferedDocumentTriangles(ctx context.Context, document glbDocument, buffers [][]byte, source string) ([]Triangle, error) {
 	triangles := make([]Triangle, 0)
 	for meshIndex, mesh := range document.Meshes {
 		for primitiveIndex, primitive := range mesh.Primitives {
@@ -94,23 +100,26 @@ func readBufferedDocumentTriangles(document glbDocument, buffers [][]byte, sourc
 				return nil, fmt.Errorf("%s mesh %d primitive %d has no POSITION attribute", source, meshIndex, primitiveIndex)
 			}
 
-			positions, err := readBufferedPositionAccessor(document, buffers, positionAccessorIndex, source)
+			positions, err := readBufferedPositionAccessor(ctx, document, buffers, positionAccessorIndex, source)
 			if err != nil {
 				return nil, fmt.Errorf("read %s mesh %d primitive %d positions: %w", source, meshIndex, primitiveIndex, err)
 			}
 
-			indices, err := readBufferedPrimitiveIndices(document, buffers, primitive, len(positions), source)
+			indices, err := readBufferedPrimitiveIndices(ctx, document, buffers, primitive, len(positions), source)
 			if err != nil {
 				return nil, fmt.Errorf("read %s mesh %d primitive %d indices: %w", source, meshIndex, primitiveIndex, err)
 			}
 
+			if len(triangles)+primitiveTriangleCount(len(indices), primitiveMode(primitive)) > MaxGeometryTriangles {
+				return nil, fmt.Errorf("too many geometry indices")
+			}
 			triangles = append(triangles, trianglesForGLBPrimitive(positions, indices, primitiveMode(primitive))...)
 		}
 	}
 	return triangles, nil
 }
 
-func readBufferedPositionAccessor(document glbDocument, buffers [][]byte, accessorIndex int, source string) ([]Vector3, error) {
+func readBufferedPositionAccessor(ctx context.Context, document glbDocument, buffers [][]byte, accessorIndex int, source string) ([]Vector3, error) {
 	accessor, err := glbAccessorAt(document, accessorIndex)
 	if err != nil {
 		return nil, err
@@ -134,9 +143,20 @@ func readBufferedPositionAccessor(document glbDocument, buffers [][]byte, access
 		return nil, fmt.Errorf("POSITION accessor %d has byteStride smaller than VEC3 FLOAT", accessorIndex)
 	}
 
+	if accessor.Count > maxGeometryVertices {
+		return nil, fmt.Errorf("too many vertices")
+	}
+	if err := validateAccessor(accessor.Count, stride, 12, start, view.ByteOffset+view.ByteLength); err != nil {
+		return nil, err
+	}
 	positions := make([]Vector3, 0, accessor.Count)
 	viewEnd := view.ByteOffset + view.ByteLength
 	for index := 0; index < accessor.Count; index++ {
+		if index%1024 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
 		offset := start + index*stride
 		if offset+12 > viewEnd || offset+12 > len(buffer) {
 			return nil, fmt.Errorf("POSITION accessor %d reads past bufferView", accessorIndex)
@@ -151,7 +171,7 @@ func readBufferedPositionAccessor(document glbDocument, buffers [][]byte, access
 	return positions, nil
 }
 
-func readBufferedPrimitiveIndices(document glbDocument, buffers [][]byte, primitive glbPrimitive, positionCount int, source string) ([]int, error) {
+func readBufferedPrimitiveIndices(ctx context.Context, document glbDocument, buffers [][]byte, primitive glbPrimitive, positionCount int, source string) ([]int, error) {
 	if primitive.Indices == nil {
 		indices := make([]int, positionCount)
 		for index := range indices {
@@ -188,9 +208,17 @@ func readBufferedPrimitiveIndices(document glbDocument, buffers [][]byte, primit
 		return nil, fmt.Errorf("index accessor %d has byteStride smaller than component size", accessorIndex)
 	}
 
+	if err := validateAccessor(accessor.Count, stride, componentSize, start, view.ByteOffset+view.ByteLength); err != nil {
+		return nil, err
+	}
 	indices := make([]int, 0, accessor.Count)
 	viewEnd := view.ByteOffset + view.ByteLength
 	for index := 0; index < accessor.Count; index++ {
+		if index%1024 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+		}
 		offset := start + index*stride
 		if offset+componentSize > viewEnd || offset+componentSize > len(buffer) {
 			return nil, fmt.Errorf("index accessor %d reads past bufferView", accessorIndex)
@@ -221,7 +249,7 @@ func bufferedAccessorRange(document glbDocument, buffers [][]byte, accessor glbA
 	buffer := buffers[view.Buffer]
 	start := view.ByteOffset + accessor.ByteOffset
 	viewEnd := view.ByteOffset + view.ByteLength
-	if start < 0 || viewEnd > len(buffer) || start > viewEnd {
+	if view.ByteOffset < 0 || view.ByteLength < 0 || accessor.ByteOffset < 0 || view.ByteOffset > len(buffer) || view.ByteLength > len(buffer)-view.ByteOffset || start < view.ByteOffset || start < 0 || viewEnd > len(buffer) || start > viewEnd {
 		return glbBufferView{}, nil, 0, fmt.Errorf("accessor %d has invalid buffer range", accessorIndex)
 	}
 	return view, buffer, start, nil

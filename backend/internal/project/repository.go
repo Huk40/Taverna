@@ -9,6 +9,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"taverna/backend/internal/auth"
+	"taverna/backend/internal/httpx"
 )
 
 var ErrNotFound = errors.New("project not found")
@@ -22,23 +25,44 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 }
 
 func (r *Repository) Create(ctx context.Context, payload ProjectPayload) (Project, error) {
+	user, ok := auth.IdentityFromContext(ctx)
+	if !ok {
+		return Project{}, ErrNotFound
+	}
+	return r.CreateForOwner(ctx, user.ID, payload)
+}
+
+func (r *Repository) CreateForOwner(ctx context.Context, ownerID string, payload ProjectPayload) (Project, error) {
 	payload = normalizePayload(payload)
 
 	row := r.pool.QueryRow(ctx, `
-		INSERT INTO projects (name, config)
-		VALUES ($1, $2::jsonb)
+		INSERT INTO projects (owner_id, name, config)
+		VALUES ($1, $2, $3::jsonb)
 		RETURNING id::text, name, config, created_at, updated_at
-	`, payload.Name, string(payload.Config))
+	`, ownerID, payload.Name, string(payload.Config))
 
 	return scanProject(row)
 }
 
 func (r *Repository) List(ctx context.Context) ([]Project, error) {
+	user, ok := auth.IdentityFromContext(ctx)
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return r.ListForOwner(ctx, user.ID)
+}
+
+func (r *Repository) ListForOwner(ctx context.Context, ownerID string, pages ...httpx.Page) ([]Project, error) {
+	page := httpx.Page{Limit: 50}
+	if len(pages) > 0 {
+		page = pages[0]
+	}
 	rows, err := r.pool.Query(ctx, `
 		SELECT id::text, name, config, created_at, updated_at
 		FROM projects
-		ORDER BY updated_at DESC, created_at DESC
-	`)
+		WHERE owner_id = $1
+		ORDER BY updated_at DESC, id DESC LIMIT $2 OFFSET $3
+	`, ownerID, page.Limit, page.Offset)
 	if err != nil {
 		return nil, fmt.Errorf("query projects: %w", err)
 	}
@@ -60,16 +84,31 @@ func (r *Repository) List(ctx context.Context) ([]Project, error) {
 }
 
 func (r *Repository) Get(ctx context.Context, id string) (Project, error) {
+	user, ok := auth.IdentityFromContext(ctx)
+	if !ok {
+		return Project{}, ErrNotFound
+	}
+	return r.GetForOwner(ctx, id, user.ID)
+}
+
+func (r *Repository) GetForOwner(ctx context.Context, id, ownerID string) (Project, error) {
 	row := r.pool.QueryRow(ctx, `
 		SELECT id::text, name, config, created_at, updated_at
 		FROM projects
-		WHERE id = $1
-	`, id)
-
+		WHERE id = $1 AND owner_id = $2
+	`, id, ownerID)
 	return scanProject(row)
 }
 
 func (r *Repository) Update(ctx context.Context, id string, payload ProjectPayload) (Project, error) {
+	user, ok := auth.IdentityFromContext(ctx)
+	if !ok {
+		return Project{}, ErrNotFound
+	}
+	return r.UpdateForOwner(ctx, id, user.ID, payload)
+}
+
+func (r *Repository) UpdateForOwner(ctx context.Context, id, ownerID string, payload ProjectPayload) (Project, error) {
 	payload = normalizePayload(payload)
 
 	row := r.pool.QueryRow(ctx, `
@@ -77,15 +116,23 @@ func (r *Repository) Update(ctx context.Context, id string, payload ProjectPaylo
 		SET name = $2,
 			config = $3::jsonb,
 			updated_at = NOW()
-		WHERE id = $1
+		WHERE id = $1 AND owner_id = $4
 		RETURNING id::text, name, config, created_at, updated_at
-	`, id, payload.Name, string(payload.Config))
+	`, id, payload.Name, string(payload.Config), ownerID)
 
 	return scanProject(row)
 }
 
 func (r *Repository) Delete(ctx context.Context, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM projects WHERE id = $1`, id)
+	user, ok := auth.IdentityFromContext(ctx)
+	if !ok {
+		return ErrNotFound
+	}
+	return r.DeleteForOwner(ctx, id, user.ID)
+}
+
+func (r *Repository) DeleteForOwner(ctx context.Context, id, ownerID string) error {
+	tag, err := r.pool.Exec(ctx, `DELETE FROM projects WHERE id = $1 AND owner_id = $2`, id, ownerID)
 	if err != nil {
 		return fmt.Errorf("delete project: %w", err)
 	}
