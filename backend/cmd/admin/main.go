@@ -14,16 +14,15 @@ import (
 
 func main() {
 	email := flag.String("email", "", "Existing account email")
-	claim := flag.Bool("claim-legacy", false, "Assign only projects without an owner to this account")
 	flag.Parse()
-	if err := run(strings.ToLower(strings.TrimSpace(*email)), *claim); err != nil {
+	if err := run(strings.ToLower(strings.TrimSpace(*email))); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
-func run(email string, claim bool) error {
+func run(email string) error {
 	if email == "" {
-		return fmt.Errorf("use: admin -email owner@example.com [-claim-legacy]")
+		return fmt.Errorf("use: admin -email owner@example.com")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -41,11 +40,6 @@ func run(email string, claim bool) error {
 	err = tx.QueryRow(ctx, `UPDATE users SET role='admin',updated_at=NOW() WHERE LOWER(email)=$1 RETURNING id::text`, email).Scan(&id)
 	if err != nil {
 		return fmt.Errorf("register this account first: %w", err)
-	}
-	if claim {
-		if _, err = tx.Exec(ctx, `UPDATE projects SET owner_id=$1 WHERE owner_id IS NULL`, id); err != nil {
-			return err
-		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return err

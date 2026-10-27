@@ -149,10 +149,6 @@ func TestAccountsAndPrivateProjects(t *testing.T) {
 	if !strings.HasPrefix(storedHash, "argon2id$") || strings.Contains(storedHash, password) {
 		t.Fatal("invalid stored password")
 	}
-	// Fake admin allowlists cannot influence registration; old projects remain unowned.
-	if _, err = pool.Exec(ctx, `INSERT INTO projects(name,config) VALUES ('legacy','{}')`); err != nil {
-		t.Fatal(err)
-	}
 	c := request(guest, "GET", "/api/catalog", nil, 200)["defaults"]
 	assetID := "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 	source := filepath.Join(t.TempDir(), "triangle.obj")

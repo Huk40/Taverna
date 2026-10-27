@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -76,11 +78,87 @@ func TestMigrationUpgradeAndConcurrentStartup(t *testing.T) {
 		}
 	}
 	var count int
-	if err := pool.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 6 {
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&count); err != nil || count != 7 {
 		t.Fatalf("migrations=%d err=%v", count, err)
 	}
 	if err := RunMigrations(ctx, pool, t.TempDir(), logger); err == nil {
 		t.Fatal("missing migrations accepted")
+	}
+}
+
+func TestMigrationRemovesUnownedProjects(t *testing.T) {
+	pool := testDatabase(t)
+	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	old := t.TempDir()
+	files, err := filepath.Glob("../../migrations/00[1-6]_*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(old, filepath.Base(file)), raw, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := RunMigrations(ctx, pool, old, logger); err != nil {
+		t.Fatal(err)
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO users(id,email,password_hash) VALUES
+		 ('11111111-1111-4111-8111-111111111111','alice@example.test','unused'),
+		 ('22222222-2222-4222-8222-222222222222','bob@example.test','unused');
+		INSERT INTO model_assets(id,label,slot,attachment_point,file_name,content_type,format,size_bytes,storage_path)
+		 VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','Shared','gear','right_hand','shared.obj','text/plain','obj',1,'/shared');
+		INSERT INTO projects(id,owner_id,name,config) VALUES
+		 ('33333333-3333-4333-8333-333333333333',NULL,'Unowned',
+		  '{"assembly":{"placements":[{"id":"p1","asset_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}]}}'),
+		 ('44444444-4444-4444-8444-444444444444','11111111-1111-4111-8111-111111111111','Alice',
+		  '{"assembly":{"placements":[{"id":"p1","asset_id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"}]}}'),
+		 ('55555555-5555-4555-8555-555555555555','22222222-2222-4222-8222-222222222222','Bob','{}');
+		INSERT INTO export_jobs(project_id,target,format,status) VALUES
+		 ('33333333-3333-4333-8333-333333333333','stl_print','stl','completed'),
+		 ('44444444-4444-4444-8444-444444444444','stl_print','stl','completed');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := RunMigrations(ctx, pool, "../../migrations", logger); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, check := range []struct {
+		query string
+		want  int
+	}{
+		{`SELECT count(*) FROM projects`, 2},
+		{`SELECT count(*) FROM projects WHERE owner_id IS NULL`, 0},
+		{`SELECT count(*) FROM projects WHERE (name='Alice' AND owner_id='11111111-1111-4111-8111-111111111111') OR (name='Bob' AND owner_id='22222222-2222-4222-8222-222222222222')`, 2},
+		{`SELECT count(*) FROM export_jobs`, 1},
+		{`SELECT count(*) FROM export_jobs WHERE project_id='44444444-4444-4444-8444-444444444444'`, 1},
+		{`SELECT count(*) FROM project_asset_references`, 1},
+		{`SELECT count(*) FROM project_asset_references WHERE project_id='44444444-4444-4444-8444-444444444444'`, 1},
+		{`SELECT count(*) FROM model_assets`, 1},
+		{`SELECT count(*) FROM users`, 2},
+	} {
+		var count int
+		if err := pool.QueryRow(ctx, check.query).Scan(&count); err != nil || count != check.want {
+			t.Fatalf("%s: count=%d want=%d err=%v", check.query, count, check.want, err)
+		}
+	}
+	for _, query := range []string{
+		`INSERT INTO projects(name,config) VALUES ('Unowned again','{}')`,
+		`UPDATE projects SET owner_id=NULL WHERE name='Alice'`,
+	} {
+		_, err := pool.Exec(ctx, query)
+		var pgErr *pgconn.PgError
+		if !errors.As(err, &pgErr) || pgErr.Code != "23502" {
+			t.Fatalf("unowned project must violate NOT NULL: %v", err)
+		}
 	}
 }
 
@@ -91,6 +169,10 @@ func TestConcurrentAssetAndAnchorRemovalCannotBreakProjects(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
 			if err := RunMigrations(ctx, pool, "../../migrations", slog.New(slog.NewTextHandler(io.Discard, nil))); err != nil {
+				t.Fatal(err)
+			}
+			var ownerID string
+			if err := pool.QueryRow(ctx, `INSERT INTO users(email,password_hash) VALUES ('owner@example.test','unused') RETURNING id::text`).Scan(&ownerID); err != nil {
 				t.Fatal(err)
 			}
 			const asset = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -112,7 +194,7 @@ func TestConcurrentAssetAndAnchorRemovalCannotBreakProjects(t *testing.T) {
 			if operation == "delete before save" {
 				_, err = first.Exec(ctx, remove, asset)
 			} else {
-				_, err = first.Exec(ctx, `INSERT INTO projects(name,config) VALUES ('Saved',$1::jsonb)`, string(config))
+				_, err = first.Exec(ctx, `INSERT INTO projects(owner_id,name,config) VALUES ($1,'Saved',$2::jsonb)`, ownerID, string(config))
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -126,7 +208,7 @@ func TestConcurrentAssetAndAnchorRemovalCannotBreakProjects(t *testing.T) {
 			finished := make(chan error, 1)
 			go func() {
 				if operation == "delete before save" {
-					_, err := conn.Exec(ctx, `INSERT INTO projects(name,config) VALUES ('Concurrent',$1::jsonb)`, string(config))
+					_, err := conn.Exec(ctx, `INSERT INTO projects(owner_id,name,config) VALUES ($1,'Concurrent',$2::jsonb)`, ownerID, string(config))
 					finished <- err
 				} else {
 					_, err := conn.Exec(ctx, remove, asset)
